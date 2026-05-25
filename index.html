@@ -974,8 +974,11 @@ function renderRegionList() {
   var statusText = degraded === 0 ? 'All regions nominal' :
     (degraded + ' region' + (degraded > 1 ? 's' : '') + ' require attention');
 
-  var statusEl = document.getElementById('loader-msg');
-  if (statusEl) statusEl.textContent = statusText;
+  var statusEl = document.getElementById('h-status');
+  if (statusEl) {
+    statusEl.textContent = statusText;
+    statusEl.style.color = degraded === 0 ? '#1e6e48' : '#8a7820';
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -1368,15 +1371,17 @@ async function generateSitrep() {
     }
   });
 
-  var prompt = 'You are an autonomous fleet operations analyst. Based on the following live environmental signal data for Waymo public service regions, provide a concise operational situation report (SITREP) in 3-4 sentences. Focus on which regions require attention and why. Be specific, operational, and restrained — most regions are normal today.
-
-Pipeline: ' + stats.raw + ' signals ingested, ' + stats.sup + ' suppressed, ' + stats.rel + ' region-relevant, ' + stats.esc + ' posture changes.
-
-Region Status:
-' + regionSummaries.join('
-') + '
-
-Write a brief operational SITREP suitable for a fleet operations director. No bullet points. Plain prose. Factual and direct.';
+  var prompt = [
+    'You are an autonomous fleet operations analyst. Based on the following live environmental signal data for Waymo public service regions, provide a concise operational situation report (SITREP) in 3-4 sentences.',
+    'Focus on which regions require attention and why. Be specific, operational, and restrained — most regions are normal today.',
+    '',
+    'Pipeline: ' + stats.raw + ' signals ingested, ' + stats.sup + ' suppressed, ' + stats.rel + ' region-relevant, ' + stats.esc + ' posture changes.',
+    '',
+    'Region Status:',
+    regionSummaries.join('\n'),
+    '',
+    'Write a brief operational SITREP suitable for a fleet operations director. No bullet points. Plain prose. Factual and direct.'
+  ].join('\n');
 
   try {
     var response = await fetch('https://signal-proxy.jmsaley88.workers.dev/sitrep', {
