@@ -656,6 +656,7 @@ async function fetchAllData() {
   // NWS alerts for all states
   setMsg('Fetching NWS alerts…');
   var states = ['CA','AZ','FL','TN','TX','GA'];
+  var nwsCount = 0;
   var nwsResults = await Promise.allSettled(states.map(function(st) {
     return pjson('https://api.weather.gov/alerts/active/area/' + st)
       .then(function(d) { return { d: d, state: st }; });
@@ -1349,10 +1350,8 @@ function toggleSitrep() {}
 async function generateSitrep() {
   var btn = document.getElementById('sitrep-btn');
   var body = document.getElementById('sitrep-body');
-  var panel = document.getElementById('sitrep-panel');
   if (!btn || !body) return;
 
-  panel.classList.add('open');
   btn.disabled = true;
   btn.textContent = 'Generating…';
   body.innerHTML = '<div class="sitrep-loading">Analyzing live signal data…</div>';
