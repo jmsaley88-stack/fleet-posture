@@ -385,6 +385,43 @@ html, body { overflow: auto !important; }
     <button class="map-btn" id="btn-radar" onclick="toggleMap('radar')">Radar</button>
   </div>
     <!-- DATA VALIDATION TOGGLE -->
+  <button onclick="toggleMethodology()" id="method-btn" style="position:absolute;bottom:128px;left:14px;z-index:1001;background:rgba(10,12,18,0.92);border:1px solid #1a2030;color:#6888a8;font-family:Inter,sans-serif;font-size:9px;padding:4px 10px;cursor:pointer;border-radius:3px;text-transform:uppercase;letter-spacing:0.05em;transition:all 0.15s">How It Works</button>
+  <div id="method-panel" style="display:none;position:absolute;bottom:166px;left:14px;z-index:1002;background:rgba(8,9,14,0.97);border:1px solid #1a2030;border-radius:4px;padding:14px 16px;width:320px;max-height:400px;overflow-y:auto;font-size:10px;color:#6888a8;line-height:1.7;">
+    <div style="font-size:9px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#a0b8d0;margin-bottom:12px;border-bottom:1px solid #1a2030;padding-bottom:8px;">Detection Methodology</div>
+
+    <div style="color:#a0b8d0;font-weight:600;margin-bottom:4px;font-size:10px;">Core Question</div>
+    <div style="margin-bottom:12px;color:#6888a8;">How justified is a posture change for this service region — right now?</div>
+
+    <div style="color:#a0b8d0;font-weight:600;margin-bottom:4px;font-size:10px;">Scoring Pipeline</div>
+    <div style="font-family:monospace;font-size:9px;color:#4a6888;background:#080c14;padding:8px 10px;border-radius:3px;margin-bottom:12px;line-height:1.9;">
+      Base signal score &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(event type × source confidence)<br>
+      + Spatial relevance &nbsp;&nbsp;&nbsp;(intersects or near operating region)<br>
+      + Corroboration &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(second independent source confirms)<br>
+      + Persistence &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(condition active across refresh cycles)<br>
+      − Telemetry gap &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(no secondary validation available)<br>
+      − Temporal decay &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(stale signal, no new activity)<br>
+      ──────────────────────────────<br>
+      = Operational relevance score
+    </div>
+
+    <div style="color:#a0b8d0;font-weight:600;margin-bottom:4px;font-size:10px;">Posture Thresholds</div>
+    <div style="font-family:monospace;font-size:9px;color:#4a6888;background:#080c14;padding:8px 10px;border-radius:3px;margin-bottom:12px;line-height:1.9;">
+      ≥ 90 → <span style="color:#a01828">SUSPEND</span> &nbsp;&nbsp;Conditions exceed safe tolerance<br>
+      ≥ 75 → <span style="color:#a04818">RESTRICT</span> &nbsp;Routing/dispatch modifications needed<br>
+      ≥ 45 → <span style="color:#a07820">WATCH</span> &nbsp;&nbsp;&nbsp;&nbsp;Degrading — increased awareness<br>
+      ≥ 22 → <span style="color:#5555aa">MONITOR</span> &nbsp;&nbsp;Emerging — low confidence signal<br>
+      &lt; 22 → <span style="color:#1a8a5a">NORMAL</span> &nbsp;&nbsp;&nbsp;No operationally relevant condition
+    </div>
+
+    <div style="color:#a0b8d0;font-weight:600;margin-bottom:4px;font-size:10px;">Suppression Logic</div>
+    <div style="margin-bottom:12px;color:#6888a8;">Signals are suppressed if they score below threshold, have no spatial intersection with any service region, are exact duplicates, are context-only probabilistic outlooks without corroboration, or decay after 4+ refresh cycles without resolution. <strong style="color:#8aaac8">Suppression is a feature.</strong> The most important capability is correctly deciding NOT to escalate.</div>
+
+    <div style="color:#a0b8d0;font-weight:600;margin-bottom:4px;font-size:10px;">Confidence ≠ Severity</div>
+    <div style="margin-bottom:12px;color:#6888a8;">A high score means the escalation is well-justified — not that conditions are dangerous. You can have high confidence in a moderate condition, or low confidence in a potentially severe one. The score answers: <em style="color:#8aaac8">how much evidence supports changing operational posture?</em></div>
+
+    <div style="color:#a0b8d0;font-weight:600;margin-bottom:4px;font-size:10px;">Telemetry Layer</div>
+    <div style="color:#6888a8;">This prototype uses public environmental signals only. In production, fleet telemetry — reroute frequency, speed degradation, remote assistance volume, perception health, hard braking clusters — would serve as the primary corroboration layer, increasing score confidence and reducing false positives.</div>
+  </div>
   <button onclick="toggleValidation()" id="val-btn" style="position:absolute;bottom:90px;left:14px;z-index:1001;background:rgba(10,12,18,0.92);border:1px solid #1a2030;color:#6888a8;font-family:Inter,sans-serif;font-size:9px;padding:4px 10px;cursor:pointer;border-radius:3px;text-transform:uppercase;letter-spacing:0.05em;transition:all 0.15s" onmouseover="this.style.borderColor='#5a80a8';this.style.color='#8aaac8'" onmouseout="this.style.borderColor='#1a2030';this.style.color='#6888a8'">Validate Data</button>
   <div class="val-panel" id="val-panel">
     <div class="val-title">Live Data Sources — Last Refresh</div>
@@ -868,6 +905,15 @@ function runDetection() {
         cycles: stored ? stored.cycles + 1 : 1
       };
 
+      // Telemetry gap penalty — no corroboration from secondary source
+      var hasCorroboration = lineage.some(function(l){ return l.color === '#3a5888'; });
+      if (!hasCorroboration && score > SUPPRESS_BELOW) {
+        var telPenalty = -8;
+        score += telPenalty;
+        lineage.push({ lbl: 'No secondary corroboration (telemetry gap)',
+                       val: telPenalty, color: '#7a4828' });
+      }
+
       var finalScore = Math.round(Math.min(99, score));
       if (finalScore < SUPPRESS_BELOW) {
         regionData[region.id].suppressed++;
@@ -875,7 +921,7 @@ function runDetection() {
         return;
       }
 
-      lineage.push({ lbl: 'Relevance score', val: finalScore, color: '#c8d8e8', final: true });
+      lineage.push({ lbl: 'Operational relevance score', val: finalScore, color: '#c8d8e8', final: true });
 
       regionData[region.id].signals.push({
         sig: sig,
@@ -1095,12 +1141,20 @@ function renderDetail(regionId) {
   }
 
   var html = '';
+  // Score interpretation note
+  if (rd.posture !== 'normal') {
+    html += '<div style="padding:8px 20px 0;font-size:9px;color:#3a5070;border-bottom:1px solid #131a24;background:#08090e;">';
+    html += 'Score = signal quality + spatial relevance + corroboration + persistence − noise. ';
+    html += 'Answers: <em style="color:#4a6888">how justified is posture escalation?</em>';
+    html += '</div>';
+  }
+
   if (rd.assessment && rd.posture !== 'normal') {
     var a = rd.assessment;
     var cc = a.confidence==='HIGH'?'#1a8a5a':a.confidence==='MODERATE'?'#a07820':'#5555aa';
     var vc = a.validation.indexOf('not required')>=0?'#1a8a5a':a.validation.indexOf('recommended')>=0?'#a07820':'#c04040';
     html += '<div style="padding:14px 20px;border-bottom:1px solid #131a24;background:#0a0e16;">';
-    html += '<div style="font-size:9px;color:#4a6070;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px;font-weight:600">Intelligence Assessment</div>';
+    html += '<div style="font-size:9px;color:#4a6070;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px;font-weight:600">Escalation Assessment</div>';
     html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px;">';
     html += '<div><div style="font-size:9px;color:#3a5070;margin-bottom:3px">CONFIDENCE</div><div style="font-size:14px;font-weight:700;color:'+cc+'">'+a.confidence+'</div></div>';
     html += '<div><div style="font-size:9px;color:#3a5070;margin-bottom:3px">VALIDATION</div><div style="font-size:10px;font-weight:600;color:'+vc+';line-height:1.4">'+a.validation+'</div></div>';
@@ -1136,7 +1190,7 @@ function renderDetail(regionId) {
     });
     // Final score row
     html += '<div class="ds-score-row" style="background:#0a0e16">';
-    html += '<span class="ds-score-lbl" style="color:#c8d8e8;font-weight:500">Relevance score</span>';
+    html += '<span class="ds-score-lbl" style="color:#c8d8e8;font-weight:500">Operational relevance score — escalation justified at ≥45</span>';
     html += '<span class="ds-score-val" style="color:' + col + ';font-size:12px">' + ev.score + '</span>';
     html += '</div>';
     html += '</div>';
@@ -1423,6 +1477,12 @@ var validationData = {};
 
 function recordValidation(source, count, detail, ts) {
   validationData[source] = { count: count, detail: detail, ts: ts, ok: count >= 0 };
+}
+
+function toggleMethodology() {
+  var panel = document.getElementById('method-panel');
+  if (!panel) return;
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
 }
 
 function toggleValidation() {
