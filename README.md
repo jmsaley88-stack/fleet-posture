@@ -10,8 +10,6 @@ A prototype demonstrating operational posture assessment using live public envir
 
 ## What This Is
 
-This is not a weather dashboard.
-
 It is a lightweight **operational posture reasoning engine** that ingests noisy public environmental signals, evaluates spatial relevance against simulated autonomous fleet service regions, applies evidence-weighted justification logic, suppresses non-actionable conditions, and surfaces only operationally consequential exceptions — with full escalation rationale.
 
 The most important capability is correctly deciding **not** to escalate.
