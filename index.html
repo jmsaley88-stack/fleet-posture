@@ -8,343 +8,386 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { min-height: 100%; background: #0a0c12; color: #c8d8e8; font-family: 'Inter', sans-serif; font-size: 13px; }
-body { overflow: auto; }
-
+:root {
+  --bg:       #08090e;
+  --panel:    #0b0d14;
+  --row:      #0e1018;
+  --rowalt:   #0a0c12;
+  --border:   #151d2a;
+  --border2:  #1c2538;
+  --t1:       #e2ecf6;
+  --t2:       #8aa0bc;
+  --t3:       #4a6080;
+  --t4:       #253040;
+  --accent:   #2a7fff;
+  --normal:   #1a8a5a;
+  --monitor:  #5555aa;
+  --watch:    #a07820;
+  --restrict: #a04818;
+  --suspend:  #a01828;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+html, body { height:100%; overflow:hidden; }
 body {
-  display: grid;
-  grid-template-rows: 52px calc(100vh - 52px);
-  grid-template-columns: 400px 1fr;
-  min-height: 100vh;
+  background:var(--bg);
+  color:var(--t1);
+  font-family:'Inter', sans-serif;
+  font-size:13px;
+  display:grid;
+  grid-template-rows:48px 1fr;
+  grid-template-columns:380px 1fr;
+  height:100vh;
 }
 
-/* HEADER */
+/* ── HEADER ── */
 header {
-  grid-column: 1 / -1;
-  background: #0d1018;
-  border-bottom: 1px solid #1a2030;
-  display: flex;
-  align-items: center;
-  padding: 0 24px;
-  gap: 0;
+  grid-column:1/-1;
+  background:#0b0d14;
+  border-bottom:1px solid var(--border);
+  display:flex;
+  align-items:center;
+  padding:0 20px;
+  gap:0;
 }
 .h-logo {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  color: #6888a8;
-  text-transform: uppercase;
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:0.12em;
+  color:var(--t1);
+  text-transform:uppercase;
+  flex-shrink:0;
 }
-.h-divider { width: 1px; height: 20px; background: #1a2030; margin: 0 20px; }
-.h-subtitle { font-size: 11px; color: #3a5070; font-weight: 400; }
+.h-pipe { width:1px; height:18px; background:var(--border2); margin:0 18px; flex-shrink:0; }
+.h-subtitle {
+  font-size:11px;
+  color:var(--t3);
+  font-weight:400;
+  letter-spacing:0.02em;
+  flex-shrink:0;
+}
 .h-pipeline {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 10px;
+  margin-left:auto;
+  display:flex;
+  align-items:center;
+  gap:4px;
 }
-.pipe-step { text-align: center; }
+.pipe-step { text-align:center; min-width:52px; }
 .pipe-num {
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1;
-  color: #4a6888;
-  font-variant-numeric: tabular-nums;
+  font-size:18px;
+  font-weight:700;
+  line-height:1;
+  color:var(--t3);
+  font-variant-numeric:tabular-nums;
+  letter-spacing:-0.02em;
 }
-.pipe-lbl { font-size: 9px; color: #2a3a50; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 1px; }
-.pipe-num.highlight { color: #c8d8e8; }
-.pipe-arrow { color: #1e2c40; font-size: 14px; margin: 0 2px; }
-.h-clock { font-size: 10px; color: #2a3a50; margin-left: 24px; border-left: 1px solid #1a2030; padding-left: 20px; font-variant-numeric: tabular-nums; }
+.pipe-num.lit { color:var(--t1); }
+.pipe-lbl {
+  font-size:8px;
+  color:var(--t4);
+  text-transform:uppercase;
+  letter-spacing:0.08em;
+  margin-top:2px;
+  white-space:nowrap;
+}
+.pipe-arrow { color:var(--border2); font-size:16px; margin:0 2px; line-height:1; }
+.h-clock {
+  font-size:11px;
+  font-weight:500;
+  color:var(--t2);
+  margin-left:18px;
+  border-left:1px solid var(--border2);
+  padding-left:18px;
+  font-variant-numeric:tabular-nums;
+  letter-spacing:0.02em;
+  flex-shrink:0;
+}
 
-/* LEFT PANEL */
+/* ── LEFT PANEL ── */
 #left-panel {
-  background: #0d1018;
-  border-right: 1px solid #1a2030;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
+  background:var(--panel);
+  border-right:1px solid var(--border);
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
 }
 
-/* REGION LIST */
-#region-list {
-  flex: 0 0 42vh;
-  min-height: 180px;
-  overflow-y: auto;
-  border-bottom: 1px solid #1a2030;
-}
-#region-list::-webkit-scrollbar { width: 3px; }
-#region-list::-webkit-scrollbar-thumb { background: #1a2030; }
+/* ── REGION LIST ── */
+#region-list { flex-shrink:0; }
 
 .region-item {
-  display: flex;
-  align-items: center;
-  padding: 13px 20px;
-  border-bottom: 1px solid #131a24;
-  cursor: pointer;
-  transition: background 0.12s;
-  gap: 14px;
-  user-select: none;
+  display:flex;
+  align-items:center;
+  padding:12px 18px;
+  border-bottom:1px solid var(--border);
+  cursor:pointer;
+  transition:background 0.1s;
+  gap:12px;
+  user-select:none;
 }
-.region-item:hover { background: rgba(255,255,255,0.02); }
-.region-item.active { background: rgba(255,255,255,0.03); }
+.region-item:hover { background:rgba(255,255,255,0.025); }
+.region-item.active { background:rgba(42,127,255,0.06); }
 
-.ri-bar { width: 3px; height: 30px; border-radius: 2px; flex-shrink: 0; }
-.ri-name { font-size: 14px; font-weight: 500; color: #c8d8e8; flex: 1; }
-.ri-sub { font-size: 10px; color: #2a3a50; margin-top: 2px; }
+.ri-bar { width:3px; height:28px; border-radius:2px; flex-shrink:0; transition:background 0.3s; }
+.ri-body { flex:1; min-width:0; }
+.ri-name { font-size:13px; font-weight:500; color:var(--t1); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ri-sub  { font-size:10px; color:var(--t4); margin-top:2px; }
+.ri-right { text-align:right; flex-shrink:0; }
 .ri-posture {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  text-align: right;
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:0.1em;
+  text-transform:uppercase;
 }
-.ri-score { font-size: 9px; color: #2a3a50; margin-top: 2px; text-align: right; }
+.ri-score { font-size:9px; color:var(--t4); margin-top:2px; }
+.ri-conf  { font-size:8px; font-weight:600; margin-top:2px; letter-spacing:0.05em; }
 
-/* Posture colors */
-.posture-normal   .ri-bar { background: #1e6e48; }
-.posture-normal   .ri-posture { color: #1e6e48; }
-.posture-monitor  .ri-bar { background: #4a4a8a; }
-.posture-monitor  .ri-posture { color: #4a4a8a; }
-.posture-watch    .ri-bar { background: #7a6818; }
-.posture-watch    .ri-posture { color: #8a7820; }
-.posture-restrict .ri-bar { background: #7a3818; }
-.posture-restrict .ri-posture { color: #9a4820; }
-.posture-suspend  .ri-bar { background: #7a1828; }
-.posture-suspend  .ri-posture { color: #aa2030; }
+/* posture colors */
+.posture-normal   .ri-bar,.posture-normal   .ri-posture { background:var(--normal);  color:var(--normal); }
+.posture-monitor  .ri-bar,.posture-monitor  .ri-posture { background:var(--monitor); color:var(--monitor); }
+.posture-watch    .ri-bar,.posture-watch    .ri-posture { background:var(--watch);   color:var(--watch); }
+.posture-restrict .ri-bar,.posture-restrict .ri-posture { background:var(--restrict);color:var(--restrict); }
+.posture-suspend  .ri-bar,.posture-suspend  .ri-posture { background:var(--suspend); color:var(--suspend); }
+.posture-normal   .ri-bar { background:var(--normal); }
+.posture-monitor  .ri-bar { background:var(--monitor); }
+.posture-watch    .ri-bar { background:var(--watch); }
+.posture-restrict .ri-bar { background:var(--restrict); }
+.posture-suspend  .ri-bar { background:var(--suspend); }
 
-/* DETAIL PANE */
+/* ── DETAIL PANE ── */
 #detail-pane {
-  flex: 1 1 240px;
-  overflow-y: auto;
-  overflow-x: hidden;
-  min-height: 220px;
+  flex:1;
+  overflow-y:auto;
+  overflow-x:hidden;
+  min-height:0;
 }
-#detail-pane::-webkit-scrollbar { width: 3px; }
-#detail-pane::-webkit-scrollbar-thumb { background: #1a2030; }
+#detail-pane::-webkit-scrollbar { width:3px; }
+#detail-pane::-webkit-scrollbar-thumb { background:var(--border2); }
 
-.detail-header {
-  position: sticky;
-  top: 0;
-  background: #0d1018;
-  border-bottom: 1px solid #131a24;
-  padding: 12px 20px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  z-index: 10;
+.detail-hdr {
+  position:sticky; top:0; z-index:10;
+  background:var(--panel);
+  border-bottom:1px solid var(--border);
+  padding:10px 18px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
 }
-.detail-header-lbl { font-size: 10px; color: #2a3a50; text-transform: uppercase; letter-spacing: 0.08em; }
-.detail-region-name { font-size: 11px; font-weight: 500; color: #6888a8; }
+.detail-hdr-lbl { font-size:9px; color:var(--t4); text-transform:uppercase; letter-spacing:0.1em; }
+.detail-hdr-region { font-size:11px; font-weight:600; color:var(--t2); }
 .refresh-btn {
-  background: none;
-  border: 1px solid #1a2030;
-  color: #3a5070;
-  font-family: 'Inter', sans-serif;
-  font-size: 10px;
-  padding: 4px 10px;
-  cursor: pointer;
-  border-radius: 3px;
-  transition: all 0.15s;
+  background:none;
+  border:1px solid var(--border2);
+  color:var(--t3);
+  font-family:'Inter',sans-serif;
+  font-size:9px;
+  padding:3px 9px;
+  cursor:pointer;
+  border-radius:3px;
+  transition:all 0.15s;
+  letter-spacing:0.03em;
 }
-.refresh-btn:hover { border-color: #3a5070; color: #6888a8; }
-.refresh-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.refresh-btn:hover { border-color:var(--t2); color:var(--t2); }
+.refresh-btn:disabled { opacity:0.3; cursor:not-allowed; }
 
-/* DETAIL EMPTY */
 .detail-empty {
-  padding: 32px 20px;
-  color: #2a3a50;
-  font-size: 12px;
-  line-height: 2;
+  padding:32px 20px;
+  color:var(--t4);
+  font-size:12px;
+  line-height:2;
 }
-.detail-empty-ok { font-size: 14px; font-weight: 500; color: #1e6e48; margin-bottom: 8px; }
+.detail-empty-ok { font-size:15px; font-weight:600; color:var(--normal); margin-bottom:8px; }
 
-/* DETAIL SIGNAL */
-.detail-signal {
-  padding: 16px 20px;
-  border-bottom: 1px solid #131a24;
+/* SIGNAL CARD */
+.sig-card { padding:16px 18px; border-bottom:1px solid var(--border); }
+.sig-top {
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:4px;
 }
-.ds-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
-.ds-event { font-size: 13px; font-weight: 500; color: #c8d8e8; line-height: 1.3; flex: 1; }
-.ds-score { font-size: 12px; font-weight: 600; flex-shrink: 0; font-variant-numeric: tabular-nums; }
-.ds-area { font-size: 11px; color: #4a6070; margin-bottom: 10px; line-height: 1.5; }
-.ds-source { font-size: 10px; color: #2a3a50; margin-bottom: 10px; }
+.sig-event { font-size:13px; font-weight:600; color:var(--t1); flex:1; line-height:1.3; }
+.sig-score { font-size:14px; font-weight:700; flex-shrink:0; font-variant-numeric:tabular-nums; }
+.sig-area  { font-size:11px; color:var(--t3); margin-bottom:4px; line-height:1.5; }
+.sig-src   { font-size:10px; color:var(--t4); margin-bottom:12px; }
 
-/* SCORING */
-.ds-scoring { margin-bottom: 10px; }
-.ds-score-row { display: flex; align-items: center; padding: 4px 0; border-bottom: 1px solid #0f151e; }
-.ds-score-row:first-child { border-top: 1px solid #0f151e; }
-.ds-score-lbl { font-size: 10px; color: #4a6070; flex: 1; }
-.ds-score-val { font-size: 10px; font-weight: 600; min-width: 36px; text-align: right; font-variant-numeric: tabular-nums; }
+/* SCORING TABLE */
+.score-table { margin-bottom:12px; border-top:1px solid var(--border); }
+.score-row {
+  display:flex;
+  align-items:center;
+  padding:5px 0;
+  border-bottom:1px solid var(--border);
+}
+.score-lbl { font-size:10px; color:var(--t3); flex:1; line-height:1.4; }
+.score-val { font-size:10px; font-weight:700; min-width:36px; text-align:right; font-variant-numeric:tabular-nums; }
+.score-final .score-lbl { color:var(--t1); font-weight:600; }
+.score-final { background:var(--rowalt); padding:5px 4px; border-radius:2px; }
 
 /* ACTION */
-.ds-action { background: #0a0e16; border-radius: 4px; padding: 10px 12px; }
-.ds-action-lbl { font-size: 9px; color: #2a3a50; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 5px; }
-.ds-action-txt { font-size: 11px; color: #a8b8c8; line-height: 1.65; }
+.sig-action { background:var(--rowalt); border-radius:3px; padding:10px 12px; border-left:2px solid var(--border2); }
+.sig-action-lbl { font-size:8px; color:var(--t4); text-transform:uppercase; letter-spacing:0.1em; margin-bottom:5px; }
+.sig-action-txt { font-size:11px; color:var(--t2); line-height:1.7; }
 
-/* SUPPRESSED */
-.detail-suppressed { padding: 12px 20px; font-size: 10px; color: #2a3a50; border-top: 1px solid #0f151e; background: #0a0c12; }
+/* SUPPRESSED NOTE */
+.sig-suppressed { padding:10px 18px; font-size:10px; color:var(--t4); border-top:1px solid var(--border); }
+
+/* AI BRIEFING */
+.sitrep-wrap {
+  border-top:2px solid var(--border2);
+  flex-shrink:0;
+  background:var(--rowalt);
+}
+.sitrep-hdr {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:10px 18px;
+  border-bottom:1px solid var(--border);
+}
+.sitrep-lbl {
+  font-size:9px;
+  font-weight:700;
+  letter-spacing:0.1em;
+  text-transform:uppercase;
+  color:var(--t2);
+}
+.sitrep-gen-btn {
+  background:none;
+  border:1px solid var(--border2);
+  color:var(--t3);
+  font-family:'Inter',sans-serif;
+  font-size:9px;
+  padding:3px 10px;
+  cursor:pointer;
+  border-radius:3px;
+  transition:all 0.15s;
+  letter-spacing:0.03em;
+}
+.sitrep-gen-btn:hover { border-color:var(--accent); color:var(--accent); }
+.sitrep-gen-btn:disabled { opacity:0.3; cursor:not-allowed; }
+#sitrep-body {
+  padding:12px 18px;
+  font-size:11px;
+  color:var(--t2);
+  line-height:1.75;
+  min-height:72px;
+  max-height:140px;
+  overflow-y:auto;
+}
+#sitrep-body::-webkit-scrollbar { width:2px; }
+#sitrep-body::-webkit-scrollbar-thumb { background:var(--border2); }
 
 /* MAP */
-#map-container { position: relative; min-height: 0; overflow: hidden; }
-#map { position: absolute; inset: 0; background: #08090d; }
-.leaflet-tile { filter: brightness(0.95) saturate(0.85); }
+#map-container { position:relative; }
+#map { position:absolute; inset:0; background:#08090d; }
+.leaflet-tile { filter:brightness(0.92) saturate(0.75); }
 
 .map-controls {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  z-index: 1000;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
+  position:absolute;
+  top:12px; right:12px;
+  z-index:1000;
+  display:flex;
+  flex-direction:column;
+  gap:3px;
 }
 .map-btn {
-  background: rgba(10,12,18,0.92);
-  border: 1px solid #1a2030;
-  color: #2a3a50;
-  font-family: 'Inter', sans-serif;
-  font-size: 9px;
-  padding: 4px 10px;
-  cursor: pointer;
-  border-radius: 3px;
-  transition: all 0.15s;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  white-space: nowrap;
+  background:rgba(8,9,14,0.94);
+  border:1px solid var(--border2);
+  color:var(--t4);
+  font-family:'Inter',sans-serif;
+  font-size:9px;
+  padding:4px 10px;
+  cursor:pointer;
+  border-radius:3px;
+  transition:all 0.15s;
+  text-transform:uppercase;
+  letter-spacing:0.05em;
+  white-space:nowrap;
 }
-.map-btn:hover { border-color: #3a5070; color: #6888a8; }
-.map-btn.on { border-color: #3a5070; color: #6888a8; }
+.map-btn:hover { border-color:var(--t3); color:var(--t3); }
+.map-btn.on { border-color:var(--t2); color:var(--t2); }
 
 /* POPUP */
 .leaflet-popup-content-wrapper {
-  background: #0d1018 !important;
-  border: 1px solid #1a2030 !important;
-  border-radius: 4px !important;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.8) !important;
-  color: #c8d8e8 !important;
-  font-family: 'Inter', sans-serif !important;
-  font-size: 11px !important;
+  background:var(--panel)!important;
+  border:1px solid var(--border2)!important;
+  border-radius:4px!important;
+  box-shadow:0 8px 32px rgba(0,0,0,0.85)!important;
+  color:var(--t1)!important;
+  font-family:'Inter',sans-serif!important;
+  font-size:11px!important;
 }
-.leaflet-popup-tip { background: #1a2030 !important; }
-.leaflet-popup-close-button { color: #3a5070 !important; }
+.leaflet-popup-tip { background:var(--border2)!important; }
+.leaflet-popup-close-button { color:var(--t3)!important; }
 
-/* LOADER */
-#loader {
-  position: fixed; inset: 0;
-  background: #0a0c12;
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  z-index: 9999; gap: 14px;
-}
-.loader-title { font-size: 11px; color: #3a5070; letter-spacing: 0.1em; text-transform: uppercase; }
-.loader-bar { width: 200px; height: 1px; background: #131a24; overflow: hidden; }
-.loader-fill { height: 100%; background: #3a5070; animation: la 2s ease-in-out infinite; }
-@keyframes la { 0%{width:0;margin-left:0} 50%{width:60%;margin-left:20%} 100%{width:0;margin-left:100%} }
-.loader-msg { font-size: 10px; color: #1e2c40; }
-
-/* DATA VALIDATION PANEL */
+/* VALIDATION PANEL */
 .val-panel {
-  position: absolute;
-  bottom: 52px;
-  left: 14px;
-  z-index: 1000;
-  background: rgba(10,12,18,0.96);
-  border: 1px solid #1a2030;
-  border-radius: 4px;
-  padding: 10px 14px;
-  font-size: 9px;
-  width: 240px;
-  max-height: 180px;
-  overflow-y: auto;
-  display: none;
+  position:absolute;
+  bottom:50px; left:12px;
+  z-index:1000;
+  background:rgba(8,9,14,0.97);
+  border:1px solid var(--border2);
+  border-radius:4px;
+  padding:10px 14px;
+  font-size:9px;
+  width:240px;
+  max-height:180px;
+  overflow-y:auto;
+  display:none;
 }
-.val-panel.open { display: block; }
-.val-title { color: #3a5070; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 8px; font-weight: 600; }
-.val-row { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px; gap: 8px; }
-.val-src { color: #4a6888; flex-shrink: 0; }
-.val-detail { color: #2a3a50; text-align: right; line-height: 1.5; }
-.val-ok { color: #1e6e48; }
-.val-err { color: #7a2828; }
-
-/* SITREP PANEL */
-.sitrep-panel {
-  border-top: 1px solid #131a24;
-  background: #0a0c12;
-  padding: 0;
-  flex-shrink: 0;
-  max-height: 0;
-  overflow: hidden;
-  transition: max-height 0.3s ease;
-}
-.sitrep-panel.open { max-height: 220px; }
-.sitrep-inner { padding: 12px 16px; overflow-y: auto; max-height: 220px; }
-.sitrep-inner::-webkit-scrollbar { width: 2px; }
-.sitrep-inner::-webkit-scrollbar-thumb { background: #1a2030; }
-.sitrep-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; border-top: 1px solid #131a24; background: #0d1018; cursor: pointer; }
-.sitrep-lbl { font-size: 10px; color: #3a5070; text-transform: uppercase; letter-spacing: 0.08em; }
-.sitrep-btn { font-size: 9px; color: #3a5070; background: none; border: 1px solid #1a2030; padding: 3px 8px; border-radius: 3px; cursor: pointer; font-family: Inter, sans-serif; transition: all 0.15s; }
-.sitrep-btn:hover { border-color: #3a5070; color: #6888a8; }
-.sitrep-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.sitrep-text { font-size: 11px; color: #a8b8c8; line-height: 1.7; white-space: pre-wrap; }
-.sitrep-loading { font-size: 10px; color: #2a3a50; padding: 12px 0; }
+.val-panel.open { display:block; }
+.val-title { color:var(--t2); letter-spacing:0.08em; text-transform:uppercase; margin-bottom:8px; font-weight:600; font-size:9px; }
+.val-row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px; gap:8px; }
+.val-src { color:var(--t3); flex-shrink:0; }
+.val-ok { color:var(--normal); }
+.val-err { color:var(--suspend); }
 
 /* PROTOTYPE NOTE */
 .proto-note {
-  position: absolute;
-  bottom: 14px;
-  left: 14px;
-  z-index: 1000;
-  background: rgba(10,12,18,0.92);
-  border: 1px solid #1a2030;
-  border-radius: 4px;
-  padding: 8px 12px;
-  font-size: 9px;
-  color: #2a3a50;
-  max-width: 280px;
-  line-height: 1.6;
+  position:absolute;
+  bottom:12px; left:12px;
+  z-index:1000;
+  background:rgba(8,9,14,0.94);
+  border:1px solid var(--border);
+  border-radius:3px;
+  padding:7px 12px;
+  font-size:9px;
+  color:var(--t4);
+  max-width:300px;
+  line-height:1.6;
 }
 
-/* EMERGENCY SCROLL FIX */
-html, body { overflow: auto !important; }
-#left-panel { overflow-y: auto !important; min-height: 0 !important; }
-#region-list { overflow-y: auto !important; max-height: 42vh !important; }
-#detail-pane { overflow-y: auto !important; min-height: 180px !important; }
-#sitrep-body { min-height: 82px !important; max-height: 120px !important; overflow-y: auto !important; }
-
+/* LOADER */
+#loader {
+  position:fixed; inset:0;
+  background:var(--bg);
+  display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  z-index:9999; gap:16px;
+}
+.loader-title { font-size:10px; color:var(--t3); letter-spacing:0.15em; text-transform:uppercase; }
+.loader-bar { width:200px; height:1px; background:var(--border2); overflow:hidden; }
+.loader-fill { height:100%; background:var(--t3); animation:la 2s ease-in-out infinite; }
+@keyframes la { 0%{width:0;margin-left:0} 50%{width:60%;margin-left:20%} 100%{width:0;margin-left:100%} }
+.loader-msg { font-size:10px; color:var(--t4); font-variant-numeric:tabular-nums; }
 </style>
 </head>
 <body>
 
 <header>
   <div class="h-logo">Fleet Ops</div>
-  <div class="h-divider"></div>
+  <div class="h-pipe"></div>
   <div class="h-subtitle">Autonomous Fleet Regional Posture Monitor — Prototype</div>
   <div class="h-pipeline">
-    <div class="pipe-step">
-      <div class="pipe-num" id="p-raw">—</div>
-      <div class="pipe-lbl">Signals In</div>
-    </div>
+    <div class="pipe-step"><div class="pipe-num" id="p-raw">—</div><div class="pipe-lbl">Signals In</div></div>
     <div class="pipe-arrow">›</div>
-    <div class="pipe-step">
-      <div class="pipe-num" id="p-sup">—</div>
-      <div class="pipe-lbl">Suppressed</div>
-    </div>
+    <div class="pipe-step"><div class="pipe-num" id="p-sup">—</div><div class="pipe-lbl">Suppressed</div></div>
     <div class="pipe-arrow">›</div>
-    <div class="pipe-step">
-      <div class="pipe-num" id="p-rel">—</div>
-      <div class="pipe-lbl">Region Relevant</div>
-    </div>
+    <div class="pipe-step"><div class="pipe-num" id="p-rel">—</div><div class="pipe-lbl">Relevant</div></div>
     <div class="pipe-arrow">›</div>
-    <div class="pipe-step">
-      <div class="pipe-num highlight" id="p-esc">—</div>
-      <div class="pipe-lbl">Posture Changes</div>
-    </div>
+    <div class="pipe-step"><div class="pipe-num lit" id="p-esc">—</div><div class="pipe-lbl">Posture Changes</div></div>
   </div>
-  <div class="h-divider"></div>
   <div class="h-clock" id="clock">—</div>
 </header>
 
@@ -353,10 +396,10 @@ html, body { overflow: auto !important; }
     <!-- populated by JS -->
   </div>
   <div id="detail-pane">
-    <div class="detail-header">
-      <span class="detail-header-lbl">Supporting Evidence</span>
+    <div class="detail-hdr">
+      <span class="detail-hdr-lbl">Supporting Evidence</span>
       <div style="display:flex;align-items:center;gap:10px">
-        <span class="detail-region-name" id="detail-region-name">—</span>
+        <span class="detail-hdr-region" id="detail-region-name" class="detail-hdr-region">—</span>
         <button class="refresh-btn" id="refresh-btn" onclick="doRefresh()">↺ Refresh</button>
       </div>
     </div>
@@ -364,13 +407,12 @@ html, body { overflow: auto !important; }
       <div class="detail-empty">Select a service region to view contributing signals.</div>
     </div>
   </div>
-  <!-- SITREP — always visible at bottom -->
-  <div style="border-top:1px solid #131a24;background:#0a0c12;flex-shrink:0;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;">
-    <span style="font-size:10px;color:#3a5070;text-transform:uppercase;letter-spacing:0.08em;">AI Operational Briefing</span>
-    <button id="sitrep-btn" onclick="generateSitrep()" style="background:none;border:1px solid #1a2030;color:#3a5070;font-family:Inter,sans-serif;font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;transition:all 0.15s;" onmouseover="this.style.borderColor='#3a5070';this.style.color='#6888a8'" onmouseout="this.style.borderColor='#1a2030';this.style.color='#3a5070'">Generate</button>
-  </div>
-  <div id="sitrep-body" style="background:#0a0c12;border-top:1px solid #0f151e;padding:10px 16px;flex-shrink:0;height:92px;overflow-y:auto;font-size:11px;color:#6a8aa8;line-height:1.6;">
-    Click Generate for an AI operational briefing from current live signals.
+  <div class="sitrep-wrap">
+    <div class="sitrep-hdr">
+      <span class="sitrep-lbl">AI Operational Briefing</span>
+      <button class="sitrep-gen-btn" id="sitrep-btn" onclick="generateSitrep()">Generate</button>
+    </div>
+    <div id="sitrep-body">Click Generate for an AI operational briefing from current live signals.</div>
   </div>
 </div>
 
@@ -883,73 +925,56 @@ function runDetection() {
     else if (s >= POSTURE_THRESH.monitor)  rd.posture = 'monitor';
     else                                    rd.posture = 'normal';
     if (rd.posture !== 'normal') stats.esc++;
-    // Compute assessment confidence
     rd.assessment = computeAssessment(rd);
   });
 }
 
-// ─────────────────────────────────────────────
-// ASSESSMENT CONFIDENCE ENGINE
-// ─────────────────────────────────────────────
 var HIGH_AUTH_EVENTS = ['Tornado Warning','Flash Flood Emergency','Hurricane Warning','Flash Flood Warning','Evacuation Order','Ice Storm Warning'];
 var LOW_CONF_EVENTS  = ['Special Weather Statement','Heat Advisory','Air Quality Alert','Fire Weather Watch','Wind Advisory','Dense Fog Advisory'];
 
 function computeAssessment(rd) {
   if (rd.posture === 'normal') return null;
   var signals = rd.signals;
-
-  var hasHighAuth  = signals.some(function(ev){ return HIGH_AUTH_EVENTS.some(function(e){ return ev.sig.event && ev.sig.event.indexOf(e)>=0; }); });
+  var hasHighAuth  = signals.some(function(ev){ return HIGH_AUTH_EVENTS.some(function(e){ return ev.sig.event&&ev.sig.event.indexOf(e)>=0; }); });
   var hasGaugeCorr = signals.some(function(ev){ return ev.lineage.some(function(l){ return l.color==='#3a5888'; }); });
   var hasEvac      = signals.some(function(ev){ return ev.sig.type==='evac'; });
   var hasIntersect = signals.some(function(ev){ return ev.lineage.some(function(l){ return l.lbl&&l.lbl.indexOf('Intersects')>=0; }); });
   var hasPersist   = signals.some(function(ev){ return ev.lineage.some(function(l){ return l.color==='#6a5818'; }); });
   var allLowConf   = signals.every(function(ev){ return LOW_CONF_EVENTS.some(function(e){ return ev.sig.event&&ev.sig.event.indexOf(e)>=0; }); });
-
   var confidence, validation, rationale;
-
   if (hasEvac) {
-    confidence='HIGH'; validation='No telemetry validation required before action';
-    rationale='Active evacuation zone constitutes a hard operational exclusion. Immediate action justified.';
+    confidence='HIGH'; validation='No telemetry validation required';
+    rationale='Active evacuation zone — hard operational exclusion. Immediate action justified.';
   } else if (hasHighAuth && hasGaugeCorr && hasIntersect) {
-    confidence='HIGH'; validation='Telemetry validation recommended, not required';
-    rationale='High-authority NWS warning intersecting service region, corroborated by physical gauge above flood threshold.';
+    confidence='HIGH'; validation='Telemetry recommended, not required';
+    rationale='High-authority NWS warning intersecting region, corroborated by physical gauge above flood threshold.';
   } else if (hasHighAuth && hasIntersect && hasPersist) {
-    confidence='HIGH'; validation='Telemetry validation recommended, not required';
-    rationale='High-authority warning directly intersecting service region with signal persistence. Action should not wait for telemetry.';
+    confidence='HIGH'; validation='Telemetry recommended, not required';
+    rationale='High-authority warning intersecting region with persistence across refresh cycles.';
   } else if (hasHighAuth && hasIntersect) {
-    confidence='MODERATE'; validation='Telemetry validation recommended';
-    rationale='High-authority warning intersects service region but lacks secondary corroboration. Telemetry would strengthen confidence.';
+    confidence='MODERATE'; validation='Telemetry recommended';
+    rationale='High-authority warning intersects region but lacks secondary corroboration.';
   } else if (hasHighAuth && !hasIntersect) {
-    confidence='MODERATE'; validation='Telemetry validation required before escalation';
-    rationale='High-authority event near but not confirmed inside service region. Proximity alone insufficient for full escalation.';
+    confidence='MODERATE'; validation='Telemetry required before escalation';
+    rationale='High-authority event near but not confirmed inside region. Proximity alone insufficient.';
   } else if (allLowConf) {
-    confidence='LOW'; validation='Telemetry validation required before action';
-    rationale='Signals are advisory or probabilistic only. No operational action justified without telemetry validation.';
+    confidence='LOW'; validation='Telemetry required before action';
+    rationale='Advisory/probabilistic signals only. No operational action justified without telemetry.';
   } else if (hasGaugeCorr) {
-    confidence='MODERATE'; validation='Telemetry validation recommended';
-    rationale='Gauge corroboration supports assessment but warning authority is moderate.';
+    confidence='MODERATE'; validation='Telemetry recommended';
+    rationale='Gauge corroboration present but warning authority is moderate.';
   } else {
-    confidence='LOW'; validation='Telemetry validation required before action';
-    rationale='Signals lack sufficient corroboration or direct intersection confidence. Monitor only.';
+    confidence='LOW'; validation='Telemetry required before action';
+    rationale='Signals lack corroboration or direct intersection confidence.';
   }
-
   var topEvent = signals[0] ? (signals[0].sig.event||'') : '';
-  var telemetryFocus;
-  if (topEvent.indexOf('Flood')>=0||topEvent.indexOf('flood')>=0) {
-    telemetryFocus='reroute frequency in flood corridors, route abandonment near waterways, remote assistance volume, reports of blocked road segments';
-  } else if (topEvent.indexOf('Tornado')>=0) {
-    telemetryFocus='immediate route abandonment, remote assistance surge, vehicle shelter requests';
-  } else if (topEvent.indexOf('Red Flag')>=0||topEvent.indexOf('Fire')>=0) {
-    telemetryFocus='perception sensor air quality, smoke visibility impairment, route avoidance near fire perimeters';
-  } else if (topEvent.indexOf('Thunderstorm')>=0||topEvent.indexOf('Wind')>=0) {
-    telemetryFocus='hard braking clusters, speed degradation, reroute spikes in exposed corridors';
-  } else {
-    telemetryFocus='reroute frequency, remote assistance volume, vehicle speed degradation, perception system health';
-  }
-
-  return { confidence:confidence, validation:validation, rationale:rationale,
-           telemetryFocus:telemetryFocus, hasGaugeCorr:hasGaugeCorr,
-           hasIntersect:hasIntersect, hasPersist:hasPersist, hasHighAuth:hasHighAuth };
+  var tf;
+  if (topEvent.indexOf('Flood')>=0) tf='reroute frequency, route abandonment near waterways, remote assistance volume, blocked road reports';
+  else if (topEvent.indexOf('Tornado')>=0) tf='immediate route abandonment, remote assistance surge, shelter requests';
+  else if (topEvent.indexOf('Red Flag')>=0||topEvent.indexOf('Fire')>=0) tf='perception sensor air quality, smoke visibility, route avoidance near fire perimeters';
+  else if (topEvent.indexOf('Thunderstorm')>=0||topEvent.indexOf('Wind')>=0) tf='hard braking clusters, speed degradation, reroute spikes';
+  else tf='reroute frequency, remote assistance volume, speed degradation, perception health';
+  return {confidence:confidence,validation:validation,rationale:rationale,telemetryFocus:tf,hasGaugeCorr:hasGaugeCorr,hasIntersect:hasIntersect,hasPersist:hasPersist,hasHighAuth:hasHighAuth};
 }
 
 // ─────────────────────────────────────────────
@@ -1092,65 +1117,63 @@ function renderDetail(regionId) {
   }
 
   var html = '';
-
   if (rd.assessment && rd.posture !== 'normal') {
     var a = rd.assessment;
     var cc = a.confidence==='HIGH'?'#1e6e48':a.confidence==='MODERATE'?'#8a7820':'#4a4a8a';
-    var vc = a.validation.indexOf('not required')>=0?'#1e6e48':a.validation.indexOf('recommended')>=0?'#8a7820':'#aa2030';
+    var vc = a.validation.indexOf('not required')>=0?'#1e6e48':a.validation.indexOf('recommended')>=0?'#8a7820':'#c04040';
     html += '<div style="padding:14px 20px;border-bottom:1px solid #131a24;background:#0a0e16;">';
-    html += '<div style="font-size:9px;color:#2a3a50;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">Intelligence Assessment</div>';
-    html += '<div style="display:flex;gap:20px;margin-bottom:8px;">';
-    html += '<div><div style="font-size:9px;color:#3a5070;margin-bottom:2px">Confidence</div><div style="font-size:13px;font-weight:600;color:'+cc+'">'+a.confidence+'</div></div>';
-    html += '<div style="flex:1"><div style="font-size:9px;color:#3a5070;margin-bottom:2px">Validation</div><div style="font-size:10px;font-weight:500;color:'+vc+';line-height:1.4">'+a.validation+'</div></div>';
+    html += '<div style="font-size:9px;color:#4a6070;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px;font-weight:500">Intelligence Assessment</div>';
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px;">';
+    html += '<div><div style="font-size:9px;color:#3a5070;margin-bottom:3px;letter-spacing:0.05em">CONFIDENCE</div><div style="font-size:14px;font-weight:700;color:'+cc+'">'+a.confidence+'</div></div>';
+    html += '<div><div style="font-size:9px;color:#3a5070;margin-bottom:3px;letter-spacing:0.05em">VALIDATION</div><div style="font-size:10px;font-weight:600;color:'+vc+';line-height:1.4">'+a.validation+'</div></div>';
     html += '</div>';
-    html += '<div style="font-size:10px;color:#7a9088;line-height:1.6;margin-bottom:6px">'+a.rationale+'</div>';
-    html += '<div style="font-size:9px;color:#2a3a50">In production, telemetry: <span style="color:#3a5070">'+a.telemetryFocus+'</span></div>';
+    html += '<div style="font-size:10px;color:#7a9088;line-height:1.65;margin-bottom:8px">'+a.rationale+'</div>';
+    html += '<div style="font-size:9px;color:#3a5070;line-height:1.5">Telemetry focus: <span style="color:#4a6888">'+a.telemetryFocus+'</span></div>';
     html += '</div>';
   }
-
   rd.signals.forEach(function(ev) {
     var sig = ev.sig;
     var act = getAction(sig, region.name, ev.score);
     var col = postureColor(rd.posture);
 
-    html += '<div class="detail-signal">';
-    html += '<div class="ds-top">';
-    html += '<div class="ds-event">' + sig.event + '</div>';
-    html += '<div class="ds-score" style="color:' + col + '">' + ev.score + '</div>';
+    html += '<div class="sig-card">';
+    html += '<div class="sig-top">';
+    html += '<div class="sig-event">' + sig.event + '</div>';
+    html += '<div class="sig-score" style="color:' + col + '">' + ev.score + '</div>';
     html += '</div>';
 
     if (sig.area) {
-      html += '<div class="ds-area">' + sig.area.slice(0, 100) + (sig.area.length > 100 ? '…' : '') + '</div>';
+      html += '<div class="sig-area">' + sig.area.slice(0, 100) + (sig.area.length > 100 ? '…' : '') + '</div>';
     }
-    html += '<div class="ds-source">' + sig.src + ' · ' + timeAgo(sig.sent) + '</div>';
+    html += '<div class="sig-src">' + sig.src + ' · ' + timeAgo(sig.sent) + '</div>';
 
     // Scoring breakdown
-    html += '<div class="ds-scoring">';
+    html += '<div class="score-table">';
     ev.lineage.forEach(function(l) {
       if (l.final) return;
-      html += '<div class="ds-score-row">';
-      html += '<span class="ds-score-lbl" style="color:' + l.color + '">' + l.lbl + '</span>';
-      html += '<span class="ds-score-val" style="color:' + l.color + '">' + (l.val >= 0 ? '+' : '') + l.val + '</span>';
+      html += '<div class="score-row">';
+      html += '<span class="score-lbl" style="color:' + l.color + '">' + l.lbl + '</span>';
+      html += '<span class="score-val" style="color:' + l.color + '">' + (l.val >= 0 ? '+' : '') + l.val + '</span>';
       html += '</div>';
     });
     // Final score row
-    html += '<div class="ds-score-row" style="background:#0a0e16">';
-    html += '<span class="ds-score-lbl" style="color:#c8d8e8;font-weight:500">Relevance score</span>';
-    html += '<span class="ds-score-val" style="color:' + col + ';font-size:12px">' + ev.score + '</span>';
+    html += '<div class="score-row score-final">';
+    html += '<span class="score-lbl" style="color:#c8d8e8;font-weight:500">Relevance score</span>';
+    html += '<span class="score-val" style="color:' + col + ';font-size:12px">' + ev.score + '</span>';
     html += '</div>';
     html += '</div>';
 
     // Action
-    html += '<div class="ds-action">';
-    html += '<div class="ds-action-lbl">Recommended action</div>';
-    html += '<div class="ds-action-txt">' + act + '</div>';
+    html += '<div class="sig-action">';
+    html += '<div class="sig-action-lbl">Recommended action</div>';
+    html += '<div class="sig-action-txt">' + act + '</div>';
     html += '</div>';
 
     html += '</div>';
   });
 
   if (rd.suppressed > 0) {
-    html += '<div class="detail-suppressed">' + rd.suppressed + ' additional signal' + (rd.suppressed > 1 ? 's' : '') + ' evaluated — below relevance threshold, suppressed.</div>';
+    html += '<div class="sig-suppressed">' + rd.suppressed + ' additional signal' + (rd.suppressed > 1 ? 's' : '') + ' evaluated — below relevance threshold, suppressed.</div>';
   }
 
   body.innerHTML = html;
@@ -1474,54 +1497,31 @@ async function generateSitrep() {
     }
   });
 
-  // Build structured assessment context for each degraded region
   var regionAssessments = [];
   REGIONS.forEach(function(r) {
-    var rd = regionData[r.id] || { posture:'normal', score:0, signals:[], assessment:null };
-    if (rd.posture === 'normal') {
-      regionAssessments.push(r.name + ': NORMAL');
-      return;
-    }
+    var rd = regionData[r.id] || {posture:'normal',score:0,signals:[],assessment:null};
+    if (rd.posture === 'normal') { regionAssessments.push(r.name + ': NORMAL'); return; }
     var a = rd.assessment;
     var sigNames = rd.signals.slice(0,3).map(function(s){ return s.sig.event; }).join('; ');
-    var line = r.name + ': ' + rd.posture.toUpperCase() + ' (score ' + rd.score + ')';
-    line += ' | Signals: ' + (sigNames || 'none');
-    if (a) {
-      line += ' | Confidence: ' + a.confidence;
-      line += ' | Validation: ' + a.validation;
-      line += ' | ' + a.rationale;
-      if (a.hasGaugeCorr) line += ' | GAUGE CORROBORATION ACTIVE';
-      if (a.hasPersistence) line += ' | SIGNAL PERSISTENT';
-    }
+    var line = r.name + ': ' + rd.posture.toUpperCase() + ' (score ' + rd.score + ') | ' + sigNames;
+    if (a) { line += ' | Confidence: '+a.confidence+' | '+a.validation+' | '+a.rationale; }
+    if (a && a.hasGaugeCorr) line += ' | GAUGE CORROBORATED';
+    if (a && a.hasPersist) line += ' | PERSISTENT';
     regionAssessments.push(line);
   });
-
-  var suppressedNote = 'Pipeline: ' + stats.raw + ' signals ingested. ' + stats.sup + ' suppressed (outside service regions, duplicates, below threshold, or context-only). ' + stats.rel + ' region-relevant. ' + stats.esc + ' posture changes.';
-
   var prompt = [
     'You are an operational intelligence analyst for an autonomous fleet operations center.',
-    'The deterministic detection engine has already determined region posture, contributing signals, relevance scores, and recommended actions.',
-    'Your role is to produce a structured operational SITREP that assesses credibility, validation requirements, and next actions.',
+    'The deterministic detection engine has already determined posture, signals, scores, and actions. Do not re-determine posture.',
+    'Your role: produce a structured SITREP assessing credibility, validation requirements, and recommended next actions.',
     '',
-    suppressedNote,
+    'Pipeline: '+stats.raw+' signals ingested. '+stats.sup+' suppressed (outside regions, duplicates, below threshold, context-only). '+stats.rel+' region-relevant. '+stats.esc+' posture changes.',
     '',
-    'Region Status and Assessment:',
+    'Region Status:',
     regionAssessments.join('
 '),
     '',
-    'For each degraded region, produce:',
-    '1. Current posture and top signal',
-    '2. Assessment confidence (HIGH/MODERATE/LOW) with brief rationale',
-    '3. Whether action is justified without telemetry, or telemetry validation is required first',
-    '4. What telemetry signals would corroborate or weaken this assessment in production',
-    '',
-    'Rules:',
-    '- High-authority events (Tornado Warning, Flash Flood Emergency, Evacuation Order, Hurricane Warning) intersecting a service region justify immediate action without telemetry.',
-    '- Lower-authority signals (SPC outlook, advisories, watches) require telemetry validation before escalation.',
-    '- Gauge corroboration + NWS warning = HIGH confidence.',
-    '- Never invent telemetry. Frame as: "In production, telemetry validation would include..."',
-    '- Be direct and operational. 4-6 sentences total. No bullet points. Plain prose.',
-    '- Explicitly note if most signals were suppressed as non-relevant — that is a feature, not a gap.',
+    'Produce a 4-6 sentence operational SITREP covering: current posture summary, assessment confidence rationale, whether action is justified before telemetry, what telemetry would corroborate in production.',
+    'Rules: High-authority events intersecting region = action justified without telemetry. Advisory/watch signals require telemetry first. Never invent telemetry — frame as "in production...". Note suppression as a feature. Plain prose, no bullets.',
   ].join('
 ');
 
