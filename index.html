@@ -883,7 +883,73 @@ function runDetection() {
     else if (s >= POSTURE_THRESH.monitor)  rd.posture = 'monitor';
     else                                    rd.posture = 'normal';
     if (rd.posture !== 'normal') stats.esc++;
+    // Compute assessment confidence
+    rd.assessment = computeAssessment(rd);
   });
+}
+
+// ─────────────────────────────────────────────
+// ASSESSMENT CONFIDENCE ENGINE
+// ─────────────────────────────────────────────
+var HIGH_AUTH_EVENTS = ['Tornado Warning','Flash Flood Emergency','Hurricane Warning','Flash Flood Warning','Evacuation Order','Ice Storm Warning'];
+var LOW_CONF_EVENTS  = ['Special Weather Statement','Heat Advisory','Air Quality Alert','Fire Weather Watch','Wind Advisory','Dense Fog Advisory'];
+
+function computeAssessment(rd) {
+  if (rd.posture === 'normal') return null;
+  var signals = rd.signals;
+
+  var hasHighAuth  = signals.some(function(ev){ return HIGH_AUTH_EVENTS.some(function(e){ return ev.sig.event && ev.sig.event.indexOf(e)>=0; }); });
+  var hasGaugeCorr = signals.some(function(ev){ return ev.lineage.some(function(l){ return l.color==='#3a5888'; }); });
+  var hasEvac      = signals.some(function(ev){ return ev.sig.type==='evac'; });
+  var hasIntersect = signals.some(function(ev){ return ev.lineage.some(function(l){ return l.lbl&&l.lbl.indexOf('Intersects')>=0; }); });
+  var hasPersist   = signals.some(function(ev){ return ev.lineage.some(function(l){ return l.color==='#6a5818'; }); });
+  var allLowConf   = signals.every(function(ev){ return LOW_CONF_EVENTS.some(function(e){ return ev.sig.event&&ev.sig.event.indexOf(e)>=0; }); });
+
+  var confidence, validation, rationale;
+
+  if (hasEvac) {
+    confidence='HIGH'; validation='No telemetry validation required before action';
+    rationale='Active evacuation zone constitutes a hard operational exclusion. Immediate action justified.';
+  } else if (hasHighAuth && hasGaugeCorr && hasIntersect) {
+    confidence='HIGH'; validation='Telemetry validation recommended, not required';
+    rationale='High-authority NWS warning intersecting service region, corroborated by physical gauge above flood threshold.';
+  } else if (hasHighAuth && hasIntersect && hasPersist) {
+    confidence='HIGH'; validation='Telemetry validation recommended, not required';
+    rationale='High-authority warning directly intersecting service region with signal persistence. Action should not wait for telemetry.';
+  } else if (hasHighAuth && hasIntersect) {
+    confidence='MODERATE'; validation='Telemetry validation recommended';
+    rationale='High-authority warning intersects service region but lacks secondary corroboration. Telemetry would strengthen confidence.';
+  } else if (hasHighAuth && !hasIntersect) {
+    confidence='MODERATE'; validation='Telemetry validation required before escalation';
+    rationale='High-authority event near but not confirmed inside service region. Proximity alone insufficient for full escalation.';
+  } else if (allLowConf) {
+    confidence='LOW'; validation='Telemetry validation required before action';
+    rationale='Signals are advisory or probabilistic only. No operational action justified without telemetry validation.';
+  } else if (hasGaugeCorr) {
+    confidence='MODERATE'; validation='Telemetry validation recommended';
+    rationale='Gauge corroboration supports assessment but warning authority is moderate.';
+  } else {
+    confidence='LOW'; validation='Telemetry validation required before action';
+    rationale='Signals lack sufficient corroboration or direct intersection confidence. Monitor only.';
+  }
+
+  var topEvent = signals[0] ? (signals[0].sig.event||'') : '';
+  var telemetryFocus;
+  if (topEvent.indexOf('Flood')>=0||topEvent.indexOf('flood')>=0) {
+    telemetryFocus='reroute frequency in flood corridors, route abandonment near waterways, remote assistance volume, reports of blocked road segments';
+  } else if (topEvent.indexOf('Tornado')>=0) {
+    telemetryFocus='immediate route abandonment, remote assistance surge, vehicle shelter requests';
+  } else if (topEvent.indexOf('Red Flag')>=0||topEvent.indexOf('Fire')>=0) {
+    telemetryFocus='perception sensor air quality, smoke visibility impairment, route avoidance near fire perimeters';
+  } else if (topEvent.indexOf('Thunderstorm')>=0||topEvent.indexOf('Wind')>=0) {
+    telemetryFocus='hard braking clusters, speed degradation, reroute spikes in exposed corridors';
+  } else {
+    telemetryFocus='reroute frequency, remote assistance volume, vehicle speed degradation, perception system health';
+  }
+
+  return { confidence:confidence, validation:validation, rationale:rationale,
+           telemetryFocus:telemetryFocus, hasGaugeCorr:hasGaugeCorr,
+           hasIntersect:hasIntersect, hasPersist:hasPersist, hasHighAuth:hasHighAuth };
 }
 
 // ─────────────────────────────────────────────
@@ -978,6 +1044,10 @@ function renderRegionList() {
     html += '<div>';
     html += '<div class="ri-posture">' + rd.posture + '</div>';
     html += '<div class="ri-score">' + scoreText + '</div>';
+    if (rd.assessment) {
+      var cc = rd.assessment.confidence==='HIGH'?'#1e6e48':rd.assessment.confidence==='MODERATE'?'#8a7820':'#4a4a8a';
+      html += '<div style="font-size:8px;color:'+cc+';font-weight:600;margin-top:2px;text-align:right;letter-spacing:0.05em">'+rd.assessment.confidence+' CONF</div>';
+    }
     html += '</div>';
     html += '</div>';
   });
@@ -1022,6 +1092,22 @@ function renderDetail(regionId) {
   }
 
   var html = '';
+
+  if (rd.assessment && rd.posture !== 'normal') {
+    var a = rd.assessment;
+    var cc = a.confidence==='HIGH'?'#1e6e48':a.confidence==='MODERATE'?'#8a7820':'#4a4a8a';
+    var vc = a.validation.indexOf('not required')>=0?'#1e6e48':a.validation.indexOf('recommended')>=0?'#8a7820':'#aa2030';
+    html += '<div style="padding:14px 20px;border-bottom:1px solid #131a24;background:#0a0e16;">';
+    html += '<div style="font-size:9px;color:#2a3a50;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">Intelligence Assessment</div>';
+    html += '<div style="display:flex;gap:20px;margin-bottom:8px;">';
+    html += '<div><div style="font-size:9px;color:#3a5070;margin-bottom:2px">Confidence</div><div style="font-size:13px;font-weight:600;color:'+cc+'">'+a.confidence+'</div></div>';
+    html += '<div style="flex:1"><div style="font-size:9px;color:#3a5070;margin-bottom:2px">Validation</div><div style="font-size:10px;font-weight:500;color:'+vc+';line-height:1.4">'+a.validation+'</div></div>';
+    html += '</div>';
+    html += '<div style="font-size:10px;color:#7a9088;line-height:1.6;margin-bottom:6px">'+a.rationale+'</div>';
+    html += '<div style="font-size:9px;color:#2a3a50">In production, telemetry: <span style="color:#3a5070">'+a.telemetryFocus+'</span></div>';
+    html += '</div>';
+  }
+
   rd.signals.forEach(function(ev) {
     var sig = ev.sig;
     var act = getAction(sig, region.name, ev.score);
@@ -1388,25 +1474,65 @@ async function generateSitrep() {
     }
   });
 
+  // Build structured assessment context for each degraded region
+  var regionAssessments = [];
+  REGIONS.forEach(function(r) {
+    var rd = regionData[r.id] || { posture:'normal', score:0, signals:[], assessment:null };
+    if (rd.posture === 'normal') {
+      regionAssessments.push(r.name + ': NORMAL');
+      return;
+    }
+    var a = rd.assessment;
+    var sigNames = rd.signals.slice(0,3).map(function(s){ return s.sig.event; }).join('; ');
+    var line = r.name + ': ' + rd.posture.toUpperCase() + ' (score ' + rd.score + ')';
+    line += ' | Signals: ' + (sigNames || 'none');
+    if (a) {
+      line += ' | Confidence: ' + a.confidence;
+      line += ' | Validation: ' + a.validation;
+      line += ' | ' + a.rationale;
+      if (a.hasGaugeCorr) line += ' | GAUGE CORROBORATION ACTIVE';
+      if (a.hasPersistence) line += ' | SIGNAL PERSISTENT';
+    }
+    regionAssessments.push(line);
+  });
+
+  var suppressedNote = 'Pipeline: ' + stats.raw + ' signals ingested. ' + stats.sup + ' suppressed (outside service regions, duplicates, below threshold, or context-only). ' + stats.rel + ' region-relevant. ' + stats.esc + ' posture changes.';
+
   var prompt = [
-    'You are an autonomous fleet operations analyst.',
-    'Based on live environmental signal data for public autonomous service regions, provide a concise operational situation report in 3-4 sentences.',
-    'Focus on which regions require attention and why. Be specific, operational, and restrained — most regions are normal today.',
+    'You are an operational intelligence analyst for an autonomous fleet operations center.',
+    'The deterministic detection engine has already determined region posture, contributing signals, relevance scores, and recommended actions.',
+    'Your role is to produce a structured operational SITREP that assesses credibility, validation requirements, and next actions.',
     '',
-    'Pipeline: ' + stats.raw + ' signals ingested, ' + stats.sup + ' suppressed, ' + stats.rel + ' region-relevant, ' + stats.esc + ' posture changes.',
+    suppressedNote,
     '',
-    'Region Status:',
-    regionSummaries.join('\n'),
+    'Region Status and Assessment:',
+    regionAssessments.join('
+'),
     '',
-    'Write a brief operational SITREP suitable for a fleet operations director. No bullet points. Plain prose. Factual and direct.'
-  ].join('\n');
+    'For each degraded region, produce:',
+    '1. Current posture and top signal',
+    '2. Assessment confidence (HIGH/MODERATE/LOW) with brief rationale',
+    '3. Whether action is justified without telemetry, or telemetry validation is required first',
+    '4. What telemetry signals would corroborate or weaken this assessment in production',
+    '',
+    'Rules:',
+    '- High-authority events (Tornado Warning, Flash Flood Emergency, Evacuation Order, Hurricane Warning) intersecting a service region justify immediate action without telemetry.',
+    '- Lower-authority signals (SPC outlook, advisories, watches) require telemetry validation before escalation.',
+    '- Gauge corroboration + NWS warning = HIGH confidence.',
+    '- Never invent telemetry. Frame as: "In production, telemetry validation would include..."',
+    '- Be direct and operational. 4-6 sentences total. No bullet points. Plain prose.',
+    '- Explicitly note if most signals were suppressed as non-relevant — that is a feature, not a gap.',
+  ].join('
+');
 
   try {
     var response = await fetch('https://signal-proxy.jmsaley88.workers.dev/sitrep', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-prompt: prompt
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 300,
+        messages: [{ role: 'user', content: prompt }]
       })
     });
     var data = await response.json();
