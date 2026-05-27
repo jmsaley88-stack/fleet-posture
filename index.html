@@ -996,6 +996,16 @@ function runDetection() {
                        val: telPenalty, color: '#7a4828', type: 'decay' });
       }
 
+      // Posture ceiling — persistence alone should not push across major tiers
+      // Flash Flood Warning + gauge = RESTRICT max (74)
+      // Only Tornado Warning, Flash Flood Emergency, Evacuation Order, Hurricane can hit SUSPEND
+      var SUSPEND_AUTH = ['Tornado Warning','Flash Flood Emergency','Hurricane Warning','Evacuation Order'];
+      var canSuspend = SUSPEND_AUTH.some(function(e){ return sig.event && sig.event.indexOf(e) >= 0; })
+                       || sig.type === 'evac';
+      if (!canSuspend && score >= POSTURE_THRESH.suspend) {
+        score = POSTURE_THRESH.suspend - 1; // cap at 89 — RESTRICT max
+      }
+
       var finalScore = Math.round(Math.min(99, score));
       if (finalScore < SUPPRESS_BELOW) {
         regionData[region.id].suppressed++;
@@ -1050,21 +1060,42 @@ function runDetection() {
     var prev = postureHistory[r.id] ? postureHistory[r.id].current : 'normal';
     var topSig = rd.signals[0] ? rd.signals[0].sig : null;
     var reason = topSig ? topSig.event : 'no relevant signals';
+
+    // Build escalation delta — what NEW evidence caused this change
+    var delta = [];
+    if (prev !== rd.posture) {
+      var hasGaugeDelta = rd.signals.some(function(ev){ return ev.lineage.some(function(l){ return l.type==='corr'; }); });
+      var hasIntersectDelta = rd.signals.some(function(ev){ return ev.lineage.some(function(l){ return l.type==='zone' && l.lbl.indexOf('Intersects')>=0; }); });
+      var hasPersistDelta = rd.signals.some(function(ev){ return ev.lineage.some(function(l){ return l.type==='persist'; }); });
+      var ORDER_D = ['normal','monitor','watch','restrict','suspend'];
+      var escalating = ORDER_D.indexOf(rd.posture) > ORDER_D.indexOf(prev);
+
+      if (escalating) {
+        if (topSig) delta.push('New signal: ' + topSig.event + (topSig.area ? ' (' + topSig.area.slice(0,50) + ')' : ''));
+        if (hasIntersectDelta) delta.push('Confirmed intersection with operating region');
+        if (hasGaugeDelta) delta.push('Physical gauge corroboration active');
+        if (hasPersistDelta) delta.push('Condition persistent across refresh cycles');
+        delta.push('Operational degradation unconfirmed — public signal authority justifies ' + rd.posture.toUpperCase());
+      } else {
+        delta.push('Conditions improving — posture reduced from ' + prev.toUpperCase());
+        if (!hasGaugeDelta) delta.push('Gauge corroboration no longer active');
+      }
+    }
+
     if (prev !== rd.posture) {
       postureHistory[r.id] = {
         prev: prev, current: rd.posture,
-        changedAt: Date.now(), reason: reason, score: rd.score
+        changedAt: Date.now(), reason: reason, score: rd.score, delta: delta
       };
       if (!postureTimeline[r.id]) postureTimeline[r.id] = [];
-      postureTimeline[r.id].push({ posture: rd.posture, at: Date.now(), reason: reason });
-      // Keep last 8 entries
+      postureTimeline[r.id].push({ posture: rd.posture, at: Date.now(), reason: reason, delta: delta });
       if (postureTimeline[r.id].length > 8) postureTimeline[r.id].shift();
     } else if (postureHistory[r.id]) {
       postureHistory[r.id].current = rd.posture;
       if (!postureTimeline[r.id]) postureTimeline[r.id] = [];
       var last = postureTimeline[r.id][postureTimeline[r.id].length-1];
       if (!last || last.posture !== rd.posture) {
-        postureTimeline[r.id].push({ posture: rd.posture, at: Date.now(), reason: reason });
+        postureTimeline[r.id].push({ posture: rd.posture, at: Date.now(), reason: reason, delta: [] });
         if (postureTimeline[r.id].length > 8) postureTimeline[r.id].shift();
       }
     }
@@ -1372,10 +1403,17 @@ function renderDetail(regionId) {
     var histColor = escalated ? '#a07820' : '#1a8a5a';
     var elapsed = Math.floor((Date.now() - hist.changedAt) / 60000);
     var elapsedStr = elapsed < 1 ? 'just now' : elapsed + 'm ago';
-    html += '<div style="padding:10px 18px;border-bottom:1px solid #131a24;background:#0a0e16;display:flex;align-items:center;gap:10px;">';
+    html += '<div style="padding:10px 18px;border-bottom:1px solid #131a24;background:#0a0e16;">';
+    html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:'+(hist.delta&&hist.delta.length?'6px':'0')+'">';
     html += '<div style="font-size:11px;color:'+histColor+';font-weight:700;">'+arrow+' '+hist.prev.toUpperCase()+' → '+hist.current.toUpperCase()+'</div>';
     html += '<div style="font-size:9px;color:#3a5070;flex:1;">'+elapsedStr+'</div>';
     html += '<div style="font-size:9px;color:#4a6070;">'+hist.reason+'</div>';
+    html += '</div>';
+    if (hist.delta && hist.delta.length > 0) {
+      hist.delta.forEach(function(d){
+        html += '<div style="font-size:9px;color:#3a5060;line-height:1.8;padding-left:4px;">· '+d+'</div>';
+      });
+    }
     html += '</div>';
   }
 
@@ -1389,11 +1427,21 @@ function renderDetail(regionId) {
       var t = new Date(entry.at).toUTCString().slice(17,22);
       var pColor = {suspend:'#a01828',restrict:'#a04818',watch:'#a07820',monitor:'#5555aa',normal:'#1a8a5a'}[entry.posture]||'#3a5070';
       var isLast = i === timeline.length-1;
-      html += '<div style="display:flex;align-items:center;gap:8px;opacity:'+(isLast?'1':'0.6')+'">';
+      html += '<div style="margin-bottom:6px;opacity:'+(isLast?'1':'0.55')+'">';
+      html += '<div style="display:flex;align-items:center;gap:8px;">';
       html += '<span style="font-family:monospace;color:#3a5070;font-size:8px;flex-shrink:0">'+t+' UTC</span>';
       html += '<span style="font-size:9px;font-weight:700;color:'+pColor+'">'+entry.posture.toUpperCase()+'</span>';
-      html += '<span style="color:#2a3a50;font-size:9px;">'+entry.reason+'</span>';
-      if (isLast) html += '<span style="font-size:8px;color:#3a5070;margin-left:auto">current</span>';
+      html += '<span style="color:#2a3a50;font-size:9px;flex:1;">'+entry.reason+'</span>';
+      if (isLast) html += '<span style="font-size:8px;color:#3a5070;">current</span>';
+      html += '</div>';
+      // Show escalation delta if present
+      if (entry.delta && entry.delta.length > 0) {
+        html += '<div style="margin-left:60px;margin-top:2px;">';
+        entry.delta.forEach(function(d){
+          html += '<div style="font-size:8px;color:#2a4050;line-height:1.7;">· '+d+'</div>';
+        });
+        html += '</div>';
+      }
       html += '</div>';
     });
     html += '</div></div>';
