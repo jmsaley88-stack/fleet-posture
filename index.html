@@ -15,7 +15,7 @@ body { overflow: auto; }
 body {
   display: grid;
   grid-template-rows: 52px calc(100vh - 52px);
-  grid-template-columns: 440px 1fr;
+  grid-template-columns: 440px 4px 1fr;
   min-height: 100vh;
 }
 
@@ -71,8 +71,6 @@ header {
 
 /* REGION LIST */
 #region-list {
-  flex: 0 0 42vh;
-  min-height: 180px;
   overflow-y: auto;
   border-bottom: 1px solid #1a2030;
 }
@@ -311,9 +309,9 @@ header {
 /* EMERGENCY SCROLL FIX */
 html, body { overflow: auto !important; }
 #left-panel { overflow-y: auto !important; min-height: 0 !important; }
-#region-list { overflow-y: auto !important; max-height: 42vh !important; }
-#detail-pane { overflow-y: auto !important; min-height: 180px !important; }
-#sitrep-body { min-height: 82px !important; max-height: 120px !important; overflow-y: auto !important; }
+#region-list { overflow-y: auto !important; }
+#detail-pane { overflow-y: auto !important; min-height: 80px !important; }
+#sitrep-body { min-height: 82px !important; overflow-y: auto !important; }
 
 </style>
 </head>
@@ -360,13 +358,19 @@ html, body { overflow: auto !important; }
         <button class="refresh-btn" id="refresh-btn" onclick="doRefresh()">↺ Data</button>
       </div>
     </div>
-    <div id="sitrep-body" style="padding:14px 18px;font-size:12px;color:#c8d8e8;line-height:1.8;min-height:88px;max-height:160px;overflow-y:auto;font-weight:400;">
+    <div id="sitrep-body" style="padding:14px 18px;font-size:12px;color:#c8d8e8;line-height:1.8;min-height:88px;overflow-y:auto;font-weight:400;">
       Generating operational briefing…
     </div>
   </div>
 
+  <!-- RESIZE: sitrep ↕ region list -->
+  <div id="resize-h1" style="height:4px;background:#0d1018;cursor:row-resize;flex-shrink:0;transition:background 0.15s;" onmouseenter="this.style.background='#1c2538'" onmouseleave="this.style.background='#0d1018'"></div>
+
   <!-- REGION LIST -->
   <div id="region-list"></div>
+
+  <!-- RESIZE: region list ↕ detail pane -->
+  <div id="resize-h2" style="height:4px;background:#0d1018;cursor:row-resize;flex-shrink:0;transition:background 0.15s;" onmouseenter="this.style.background='#1c2538'" onmouseleave="this.style.background='#0d1018'"></div>
 
   <!-- DETAIL PANE -->
   <div id="detail-pane">
@@ -381,6 +385,7 @@ html, body { overflow: auto !important; }
 
 </div>
 
+<div id="resize-handle" style="width:4px;background:#0d1018;cursor:col-resize;position:relative;z-index:100;flex-shrink:0;transition:background 0.15s;" onmouseenter="this.style.background='#1c2538'" onmouseleave="this.style.background='#0d1018'"></div>
 <div id="map-container">
   <div id="map"></div>
   <div class="map-controls">
@@ -440,11 +445,7 @@ html, body { overflow: auto !important; }
   </div>
 </div>
 
-<div id="mobile-notice" style="display:none;position:fixed;inset:0;background:#08090e;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;text-align:center;">
-  <div style="font-size:11px;font-weight:700;letter-spacing:0.12em;color:#c8d8e8;text-transform:uppercase;margin-bottom:16px;">Fleet Ops // Regional Posture Monitor</div>
-  <div style="font-size:13px;color:#6888a8;line-height:1.8;margin-bottom:24px;max-width:300px;">This prototype is optimized for desktop viewing.<br>Please open on a laptop or desktop for the full experience.</div>
-  <div style="font-size:10px;color:#3a5070;letter-spacing:0.08em;">https://jmsaley88-stack.github.io/fleet-posture/</div>
-</div>
+
 
 <div id="loader">
   <div class="loader-title">Fleet Operational Posture Monitor</div>
@@ -805,14 +806,24 @@ async function fetchAllData() {
   var gaugeIds = Object.keys(GAUGES);
   var gaugeResults = await Promise.allSettled(gaugeIds.map(function(rid) {
     var g = GAUGES[rid];
-    return pjson('https://waterservices.usgs.gov/nwis/iv/?format=json&sites=' + g.site + '&parameterCd=00065&period=PT2H')
+    return pjson('https://waterservices.usgs.gov/nwis/iv/?format=json&sites=' + g.site + '&parameterCd=00065&period=PT6H')
       .then(function(d) {
         var ts = d && d.value && d.value.timeSeries && d.value.timeSeries[0];
         var vals = ts && ts.values && ts.values[0] && ts.values[0].value || [];
         var latest = vals[vals.length - 1];
         var level = parseFloat(latest && latest.value || 0);
+
+        // Compute trend: compare last reading to reading ~3 hours ago
+        var trend = 'stable';
+        if (vals.length >= 4) {
+          var older = parseFloat(vals[Math.max(0, vals.length - 8)].value || 0);
+          var diff = level - older;
+          if (diff > 0.3) trend = 'rising';
+          else if (diff < -0.3) trend = 'falling';
+        }
+
         return { rid: rid, level: level, label: g.label, lat: g.lat, lng: g.lng, floodFt: g.floodFt,
-                 aboveFlood: level > g.floodFt };
+                 aboveFlood: level > g.floodFt, trend: trend };
       });
   }));
   gaugeResults.forEach(function(r) {
@@ -822,7 +833,10 @@ async function fetchAllData() {
   var gaugeCount = Object.keys(gaugeData).length;
   var gaugeAbove = Object.values(gaugeData).filter(function(g){return g.aboveFlood;}).length;
   recordValidation('USGS Water Gauges', gaugeCount,
-    gaugeCount + ' gauges live' + (gaugeAbove > 0 ? ', ' + gaugeAbove + ' above flood threshold' : ', all below flood threshold'), Date.now());
+    gaugeCount + ' gauges live' + (gaugeAbove > 0 ? ', ' + gaugeAbove + ' above flood threshold (' +
+      Object.values(gaugeData).filter(function(g){return g.aboveFlood&&g.trend==='rising';}).length + ' rising, ' +
+      Object.values(gaugeData).filter(function(g){return g.aboveFlood&&g.trend==='falling';}).length + ' receding)' :
+      ', all below flood threshold'), Date.now());
 
   // Generate independent signals for gauges above flood threshold
   Object.keys(gaugeData).forEach(function(rid) {
@@ -839,7 +853,12 @@ async function fetchAllData() {
       sent: Date.now(),
       // Score calibrated so gauge alone maxes at WATCH, never RESTRICT
       // RESTRICT requires NWS warning + gauge corroboration together
-      base: parseFloat(overage) >= 3 ? 14 : parseFloat(overage) >= 1 ? 12 : 8,
+      // Rising: full score. Stable: reduced. Falling: monitor only
+      base: g.trend === 'rising' ?
+              (parseFloat(overage) >= 3 ? 16 : parseFloat(overage) >= 1 ? 14 : 10) :
+            g.trend === 'stable' ?
+              (parseFloat(overage) >= 3 ? 12 : 8) :
+              6,  // falling — MONITOR only regardless of level
       conf: SOURCE_CONF.water || 0.95,
       geometry: null,
       lat: g.lat,
@@ -915,14 +934,31 @@ function runDetection() {
                        val: SCORE_PROXIMITY, color: '#2a5a3a', type: 'zone' });
       }
 
-      // Gauge corroboration
+      // Gauge corroboration — weighted by trend
       var gauge = gaugeData[region.id];
       if (gauge && gauge.aboveFlood) {
         var evtLower = sig.event ? sig.event.toLowerCase() : '';
         if (evtLower.indexOf('flood') >= 0 || sig.type === 'evac') {
-          score += SCORE_CORROB;
-          lineage.push({ lbl: gauge.label + ': ' + gauge.level.toFixed(1) + 'ft — above flood threshold',
-                         val: SCORE_CORROB, color: '#3a5888', type: 'corr' });
+          // Rising: full corroboration — active threat
+          // Stable: partial — conditions persistent but not worsening
+          // Falling: minimal — recession phase, conditions improving
+          var corrBonus = gauge.trend === 'rising' ? SCORE_CORROB :
+                          gauge.trend === 'stable' ? Math.round(SCORE_CORROB * 0.55) : 0;
+          var trendLabel = gauge.trend === 'rising' ? ' ↑ rising' :
+                           gauge.trend === 'stable' ? ' → stable' : ' ↓ receding';
+          if (corrBonus > 0) {
+            score += corrBonus;
+            lineage.push({
+              lbl: gauge.label + ': ' + gauge.level.toFixed(1) + 'ft — above flood threshold' + trendLabel,
+              val: corrBonus, color: '#3a5888', type: 'corr'
+            });
+          } else {
+            // Receding — note it but don't boost score
+            lineage.push({
+              lbl: gauge.label + ': ' + gauge.level.toFixed(1) + 'ft — above threshold but receding ↓',
+              val: 0, color: '#3a5070', type: 'corr'
+            });
+          }
         }
       }
 
@@ -1103,7 +1139,7 @@ function computeAssessment(rd) {
   else
     tf='reroute frequency, remote assistance volume, vehicle speed degradation, dispatch continuity metrics';
 
-  return {confidence:confidence,validation:validation,rationale:rationale,telemetryFocus:tf};
+  return {confidence:confidence,validation:validation,rationale:rationale,telemetryFocus:tf,hasHighAuth:hasHighAuth,hasIntersect:hasIntersect,hasGaugeCorr:hasGaugeCorr};
 }
 
 // ─────────────────────────────────────────────
@@ -1746,8 +1782,9 @@ function renderMap() {
     Object.keys(gaugeData).forEach(function(rid) {
       var g = gaugeData[rid];
       var color = g.aboveFlood ? '#aa2030' : (g.level > g.floodFt * 0.7 ? '#aa7820' : '#1e6e48');
+      var trendArrow = g.trend === 'rising' ? ' ↑' : g.trend === 'falling' ? ' ↓' : '';
       var icon = L.divIcon({
-        html: '<div style="background:rgba(10,12,18,0.9);border:1px solid ' + color + ';border-radius:3px;padding:2px 6px;font-size:9px;font-family:Inter,sans-serif;color:' + color + ';white-space:nowrap">' + g.level.toFixed(1) + 'ft' + (g.aboveFlood ? ' ⚠' : '') + '</div>',
+        html: '<div style="background:rgba(10,12,18,0.9);border:1px solid ' + color + ';border-radius:3px;padding:2px 6px;font-size:9px;font-family:Inter,sans-serif;color:' + color + ';white-space:nowrap">' + g.level.toFixed(1) + 'ft' + (g.aboveFlood ? ' ⚠' : '') + trendArrow + '</div>',
         className: '',
         iconAnchor: [0, 10]
       });
@@ -2042,15 +2079,86 @@ async function generateSitrep() {
 // ─────────────────────────────────────────────
 // INIT
 // ─────────────────────────────────────────────
-// Mobile detection
-if (window.innerWidth < 768) {
-  document.getElementById('mobile-notice').style.display = 'flex';
-  document.getElementById('loader').style.display = 'none';
-} else {
-  document.getElementById('mobile-notice').style.display = 'none';
-  initMap();
-  doRefresh();
-}
+// ── VERTICAL RESIZABLE PANES ──
+(function() {
+  function makeVResize(handleId, topElId, bottomElId) {
+    var handle = document.getElementById(handleId);
+    var topEl = document.getElementById(topElId);
+    var bottomEl = document.getElementById(bottomElId);
+    if (!handle || !topEl || !bottomEl) return;
+    var isDragging = false;
+    var startY, startTopH, startBotH;
+
+    handle.addEventListener('mousedown', function(e) {
+      isDragging = true;
+      startY = e.clientY;
+      startTopH = topEl.offsetHeight;
+      startBotH = bottomEl.offsetHeight;
+      document.body.style.cursor = 'row-resize';
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', function(e) {
+      if (!isDragging) return;
+      var delta = e.clientY - startY;
+      var newTopH = Math.max(60, startTopH + delta);
+      var newBotH = Math.max(60, startBotH - delta);
+      topEl.style.height = newTopH + 'px';
+      topEl.style.maxHeight = newTopH + 'px';
+      topEl.style.flex = 'none';
+      bottomEl.style.height = newBotH + 'px';
+      bottomEl.style.maxHeight = newBotH + 'px';
+      bottomEl.style.flex = 'none';
+    });
+
+    document.addEventListener('mouseup', function() {
+      if (!isDragging) return;
+      isDragging = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    });
+  }
+
+  // sitrep ↕ region-list
+  makeVResize('resize-h1', 'sitrep-body', 'region-list');
+  // region-list ↕ detail-pane
+  makeVResize('resize-h2', 'region-list', 'detail-pane');
+})();
+
+// ── RESIZABLE PANEL ──
+(function() {
+  var handle = document.getElementById('resize-handle');
+  var leftPanel = document.getElementById('left-panel');
+  var isDragging = false;
+  var startX, startWidth;
+
+  handle.addEventListener('mousedown', function(e) {
+    isDragging = true;
+    startX = e.clientX;
+    startWidth = leftPanel.offsetWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', function(e) {
+    if (!isDragging) return;
+    var newWidth = Math.min(700, Math.max(320, startWidth + (e.clientX - startX)));
+    document.body.style.gridTemplateColumns = newWidth + 'px 4px 1fr';
+  });
+
+  document.addEventListener('mouseup', function() {
+    if (!isDragging) return;
+    isDragging = false;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    if (leafMap) leafMap.invalidateSize();
+  });
+})();
+
+initMap();
+doRefresh();
 setInterval(doRefresh, 5 * 60 * 1000);
 </script>
 </body>
