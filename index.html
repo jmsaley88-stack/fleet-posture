@@ -427,7 +427,7 @@ html, body { overflow: auto !important; }
     <div style="margin-bottom:12px;color:#6888a8;">A high score means the escalation is well-justified — not that conditions are dangerous. You can have high confidence in a moderate condition, or low confidence in a potentially severe one. The score answers: <em style="color:#8aaac8">how much evidence supports changing operational posture?</em></div>
 
     <div style="color:#a0b8d0;font-weight:600;margin-bottom:4px;font-size:10px;">Telemetry Layer</div>
-    <div style="color:#6888a8;">This prototype uses public environmental signals only. In production, fleet telemetry — reroute frequency, speed degradation, remote assistance volume, perception health, hard braking clusters — would serve as the primary corroboration layer, increasing score confidence and reducing false positives.</div>
+    <div style="color:#6888a8;">This prototype uses public environmental signals only. In production, fleet telemetry — reroute frequency, speed degradation, remote assistance volume, perception health, hard braking clusters — would serve as the major corroboration source, increasing score confidence and reducing false positives.</div>
   </div>
   <button onclick="toggleValidation()" id="val-btn" style="position:absolute;bottom:90px;left:14px;z-index:1001;background:rgba(10,12,18,0.92);border:1px solid #1a2030;color:#6888a8;font-family:Inter,sans-serif;font-size:9px;padding:4px 10px;cursor:pointer;border-radius:3px;text-transform:uppercase;letter-spacing:0.05em;transition:all 0.15s" onmouseover="this.style.borderColor='#5a80a8';this.style.color='#8aaac8'" onmouseout="this.style.borderColor='#1a2030';this.style.color='#6888a8'">Validate Data</button>
   <div class="val-panel" id="val-panel">
@@ -438,6 +438,12 @@ html, body { overflow: auto !important; }
   <div class="proto-note">
     <strong style="color:#a0b8d0">Prototype</strong> — Demonstrates operational posture assessment using live public environmental signals. In production, fleet telemetry and dispatch systems would provide additional corroboration and operational validation.
   </div>
+</div>
+
+<div id="mobile-notice" style="display:none;position:fixed;inset:0;background:#08090e;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;text-align:center;">
+  <div style="font-size:11px;font-weight:700;letter-spacing:0.12em;color:#c8d8e8;text-transform:uppercase;margin-bottom:16px;">Fleet Ops // Regional Posture Monitor</div>
+  <div style="font-size:13px;color:#6888a8;line-height:1.8;margin-bottom:24px;max-width:300px;">This prototype is optimized for desktop viewing.<br>Please open on a laptop or desktop for the full experience.</div>
+  <div style="font-size:10px;color:#3a5070;letter-spacing:0.08em;">https://jmsaley88-stack.github.io/fleet-posture/</div>
 </div>
 
 <div id="loader">
@@ -544,6 +550,7 @@ var stats       = { raw:0, sup:0, rel:0, esc:0 };
 var suppressionBreakdown = { noIntersection:0, advisoryOnly:0, duplicate:0, belowThreshold:0 };
 var postureHistory = {}; // regionId -> { prev, current, changedAt, reason }
 var postureTimeline = {}; // regionId -> [{ posture, at, reason }]
+var recoveryState = {}; // regionId -> { stabilizingSince, cyclesStable, readyAt }
 
 // ─────────────────────────────────────────────
 // CLOCK
@@ -684,10 +691,13 @@ function normFire(f, isRFW, zoneGeoms) {
 function normSPC(f) {
   var dn = f.properties.DN || 2;
   var colors = { 2:'#3a8a3a', 3:'#8a8a20', 4:'#aa8820', 5:'#aa5820', 6:'#aa2020' };
+  // SPC outlooks inform readiness posture, not escalation scoring directly
+  // Scored low enough that they never drive posture alone — awareness layer only
+  var awarenessScore = dn >= 5 ? 8 : dn >= 4 ? 6 : dn >= 3 ? 4 : 2;
   return makeSignal('spc-' + f.properties.LABEL, 'spc', 'SPC',
     '', f.properties.LABEL2 || f.properties.LABEL || 'Convective Outlook',
     'SPC Day 1 Outlook', Date.now(),
-    dn * 4, SOURCE_CONF.spc, f.geometry,
+    awarenessScore, SOURCE_CONF.spc, f.geometry,
     { dn: dn, spcColor: colors[dn] || '#aa8820' });
 }
 
@@ -1015,13 +1025,23 @@ function runDetection() {
       if (postureTimeline[r.id].length > 8) postureTimeline[r.id].shift();
     } else if (postureHistory[r.id]) {
       postureHistory[r.id].current = rd.posture;
-      // Record maintenance
       if (!postureTimeline[r.id]) postureTimeline[r.id] = [];
       var last = postureTimeline[r.id][postureTimeline[r.id].length-1];
       if (!last || last.posture !== rd.posture) {
         postureTimeline[r.id].push({ posture: rd.posture, at: Date.now(), reason: reason });
         if (postureTimeline[r.id].length > 8) postureTimeline[r.id].shift();
       }
+    }
+
+    // Recovery tracking — stabilization required before normalization
+    var prevPosture = postureHistory[r.id] ? postureHistory[r.id].prev : 'normal';
+    var ORDER_R = ['normal','monitor','watch','restrict','suspend'];
+    var isImproving = ORDER_R.indexOf(rd.posture) < ORDER_R.indexOf(prevPosture);
+    if (isImproving) {
+      if (!recoveryState[r.id]) recoveryState[r.id] = { stabilizingSince: Date.now(), cyclesStable: 1 };
+      else recoveryState[r.id].cyclesStable++;
+    } else if (rd.posture === 'normal') {
+      recoveryState[r.id] = null;
     }
   });
 }
@@ -1045,13 +1065,13 @@ function computeAssessment(rd) {
     rationale='Evacuation order in operating region. Roadway access legally restricted. Operational exclusion is hard — act now.';
   } else if (hasHighAuth && hasGaugeCorr && hasIntersect) {
     confidence='HIGH'; validation='Act now — telemetry recommended for situational depth';
-    rationale='Authoritative warning intersects operating corridors, independently corroborated by physical gauge. Route reliability degraded. Operational impact confirmed by two independent sources.';
+    rationale='Authoritative warning intersects operating corridors, independently corroborated by physical gauge. Conditions consistent with route reliability risk. Operational impact confirmed by two independent sources.';
   } else if (hasHighAuth && hasIntersect && hasPersist) {
     confidence='HIGH'; validation='Act now — telemetry recommended for situational depth';
-    rationale='Authoritative warning intersecting operating region, persistent across multiple refresh cycles. Dispatch continuity at risk. Do not wait for telemetry before adjusting posture.';
+    rationale='Authoritative warning intersecting operating region, persistent across multiple refresh cycles. conditions consistent with dispatch continuity risk. Do not wait for telemetry before adjusting posture.';
   } else if (hasHighAuth && hasIntersect) {
     confidence='MODERATE'; validation='Posture change justified — telemetry recommended';
-    rationale='Authoritative warning intersects operating region. Route reliability at risk. Posture change justified on public signal alone. Telemetry would confirm operational impact.';
+    rationale='Authoritative warning intersects operating region. conditions consistent with route reliability risk. Posture change justified on public signal alone. Telemetry would confirm operational impact.';
   } else if (hasHighAuth && !hasIntersect) {
     confidence='MODERATE'; validation='Monitor — telemetry required before restriction';
     rationale='Authoritative event detected near operating corridors but not confirmed inside service region boundary. Proximity alone is insufficient for dispatch restriction. Monitor for encroachment.';
@@ -1110,12 +1130,12 @@ function getAction(sig, regionName, score) {
 
   // FLASH FLOOD EMERGENCY — authoritative
   if (ev.indexOf('Flash Flood Emergency') >= 0)
-    return 'Flash Flood Emergency in ' + n + ' operating corridors. Route accessibility at risk. Execute flood suspension protocol. Action justified without telemetry confirmation.';
+    return 'Flash Flood Emergency in ' + n + ' operating corridors. conditions consistent with route accessibility constraints. Execute flood suspension protocol. Action justified without telemetry confirmation.';
 
   // FLASH FLOOD WARNING — ladder by confidence
   if (ev.indexOf('Flash Flood Warning') >= 0) {
     if (tier === 'high')
-      return n + ' — Flash Flood Warning corroborated by gauge above flood stage. Route reliability degraded in low-elevation corridors. Prepare selective corridor restriction. Stage remote assistance capacity increase. Reassess on next refresh cycle.';
+      return n + ' — Flash Flood Warning corroborated by gauge above flood stage. Conditions consistent with route reliability risk in low-elevation corridors. Prepare selective corridor restriction. Stage remote assistance capacity increase. Reassess on next refresh cycle.';
     if (tier === 'moderate')
       return n + ' — Flash Flood Warning intersects operating region. Operational effects unconfirmed. Identify flood-prone corridors for contingency restriction. Increase monitoring cadence. No dispatch change until telemetry confirms degradation.';
     return n + ' — Flash Flood Warning near operating region. Monitor for encroachment. Prepare contingency routing. No operational change warranted at current confidence level.';
@@ -1124,7 +1144,7 @@ function getAction(sig, regionName, score) {
   // FLOOD WARNING
   if (ev.indexOf('Flood Warning') >= 0) {
     if (tier === 'high')
-      return n + ' — Active flooding indicated in operating area. Route reliability degraded. Prepare corridor-level routing restriction. Monitor remote assistance volume for demand increase.';
+      return n + ' — Active flooding indicated in operating area. Conditions consistent with route reliability risk. Prepare corridor-level routing restriction. Monitor remote assistance volume for demand increase.';
     return n + ' — Flood Warning active near ' + n + '. Identify low-lying route exposure. No operational change until route degradation possible.';
   }
 
@@ -1289,6 +1309,24 @@ function renderDetail(regionId) {
     return;
   }
 
+  // Governance notation
+  if (rd.posture !== 'normal') {
+    var govReq = {
+      monitor: { auth: 'Auto-generated', review: 'No review required', color: '#5555aa' },
+      watch:   { auth: 'Auto-generated', review: 'Operations awareness recommended', color: '#a07820' },
+      restrict:{ auth: 'Regional operations review', review: 'Operator acknowledgment recommended before dispatch change', color: '#a04818' },
+      suspend: { auth: 'Command approval required', review: 'Safety escalation authority or command acknowledgment before suspension', color: '#a01828' }
+    }[rd.posture];
+    if (govReq) {
+      html += '<div style="padding:8px 18px;border-bottom:1px solid #131a24;background:#08090e;display:flex;gap:16px;align-items:flex-start;">';
+      html += '<div><div style="font-size:8px;color:#3a5070;margin-bottom:2px;text-transform:uppercase;letter-spacing:0.08em">Authority</div>';
+      html += '<div style="font-size:9px;font-weight:600;color:'+govReq.color+'">'+govReq.auth+'</div></div>';
+      html += '<div style="flex:1"><div style="font-size:8px;color:#3a5070;margin-bottom:2px;text-transform:uppercase;letter-spacing:0.08em">Governance Note</div>';
+      html += '<div style="font-size:9px;color:#4a6070;line-height:1.5;">'+govReq.review+'</div></div>';
+      html += '</div>';
+    }
+  }
+
   // Posture change history
   var hist = postureHistory[regionId];
   if (hist && hist.prev !== hist.current) {
@@ -1305,6 +1343,96 @@ function renderDetail(regionId) {
     html += '</div>';
   }
 
+  // ── POSTURE TIMELINE ──
+  var timeline = postureTimeline[regionId];
+  if (timeline && timeline.length > 1) {
+    html += '<div style="padding:12px 18px;border-bottom:1px solid #131a24;">';
+    html += '<div style="font-size:8px;font-weight:700;letter-spacing:0.1em;color:#4a6070;text-transform:uppercase;margin-bottom:8px;">Posture Timeline</div>';
+    html += '<div style="font-size:9px;color:#4a6070;line-height:2;">';
+    timeline.forEach(function(entry, i) {
+      var t = new Date(entry.at).toUTCString().slice(17,22);
+      var pColor = {suspend:'#a01828',restrict:'#a04818',watch:'#a07820',monitor:'#5555aa',normal:'#1a8a5a'}[entry.posture]||'#3a5070';
+      var isLast = i === timeline.length-1;
+      html += '<div style="display:flex;align-items:center;gap:8px;opacity:'+(isLast?'1':'0.6')+'">';
+      html += '<span style="font-family:monospace;color:#3a5070;font-size:8px;flex-shrink:0">'+t+' UTC</span>';
+      html += '<span style="font-size:9px;font-weight:700;color:'+pColor+'">'+entry.posture.toUpperCase()+'</span>';
+      html += '<span style="color:#2a3a50;font-size:9px;">'+entry.reason+'</span>';
+      if (isLast) html += '<span style="font-size:8px;color:#3a5070;margin-left:auto">current</span>';
+      html += '</div>';
+    });
+    html += '</div></div>';
+  }
+
+  // ── WHY NOT ESCALATED FURTHER ──
+  if (rd.posture === 'watch' || rd.posture === 'monitor') {
+    var nextPostureNeeded = rd.posture === 'watch' ? 'RESTRICT' : 'WATCH';
+    var nextThresh = rd.posture === 'watch' ? POSTURE_THRESH.restrict : POSTURE_THRESH.watch;
+    var gap = nextThresh - rd.score;
+    var hasGaugeW = rd.signals.some(function(ev){ return ev.lineage.some(function(l){ return l.color==='#3a5888'; }); });
+    var hasPersistW = rd.signals.some(function(ev){ return ev.lineage.some(function(l){ return l.color==='#6a5818'; }); });
+    var hasHighAuthW = rd.signals.some(function(ev){ return HIGH_AUTH_EVENTS.some(function(e){ return ev.sig.event&&ev.sig.event.indexOf(e)>=0; }); });
+    var missingReasons = [];
+    if (!hasGaugeW) missingReasons.push('no independent physical corroboration');
+    if (!hasPersistW) missingReasons.push('condition not yet persistent across refresh cycles');
+    if (!hasHighAuthW && rd.posture==='watch') missingReasons.push('no high-authority warning confirmed');
+    missingReasons.push('operational degradation not yet independently confirmed');
+    html += '<div style="padding:12px 18px;border-bottom:1px solid #131a24;background:#080c10;">';
+    html += '<div style="font-size:8px;font-weight:700;letter-spacing:0.1em;color:#3a5560;text-transform:uppercase;margin-bottom:6px;">Why '+nextPostureNeeded+' Not Justified</div>';
+    html += '<div style="font-size:9px;color:#3a5060;line-height:1.9;">';
+    missingReasons.forEach(function(r){ html += '✕ <span style="color:#3a5060">'+r+'</span><br>'; });
+    html += '<div style="margin-top:4px;font-size:9px;color:#2a4050;">Evidence gap: <span style="color:#4a6070">'+gap+' points below '+nextPostureNeeded+' threshold ('+nextThresh+') — corroboration or persistence increase needed</span></div>';
+    html += '</div></div>';
+  }
+
+  // ── EVIDENCE SUFFICIENCY ──
+  if (rd.posture !== 'normal') {
+    var hasGaugeE = rd.signals.some(function(ev){ return ev.lineage.some(function(l){ return l.color==='#3a5888'; }); });
+    var hasIntersectE = rd.signals.some(function(ev){ return ev.lineage.some(function(l){ return l.lbl&&l.lbl.indexOf('Intersects')>=0; }); });
+    var hasPersistE = rd.signals.some(function(ev){ return ev.lineage.some(function(l){ return l.color==='#6a5818'; }); });
+    html += '<div style="padding:12px 18px;border-bottom:1px solid #131a24;">';
+    html += '<div style="font-size:8px;font-weight:700;letter-spacing:0.1em;color:#4a6070;text-transform:uppercase;margin-bottom:8px;">Evidence Sufficiency</div>';
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:9px;">';
+    [
+      { label:'NWS warning active', ok: rd.signals.some(function(ev){ return ev.sig.type==='nws'; }) },
+      { label:'Region intersection', ok: hasIntersectE },
+      { label:'Gauge corroboration', ok: hasGaugeE },
+      { label:'Signal persistence', ok: hasPersistE },
+      { label:'Roadway closure', ok: false },
+      { label:'Telemetry degradation', ok: false },
+      { label:'Remote assistance surge', ok: false },
+      { label:'Dispatch interruption', ok: false },
+    ].forEach(function(e){
+      html += '<div style="color:'+(e.ok?'#1a8a5a':'#2a3a50')+'">'+(e.ok?'✓ ':'✕ ')+'<span style="color:'+(e.ok?'#4a8060':'#2a3a50')+'">'+e.label+'</span></div>';
+    });
+    html += '</div></div>';
+  }
+
+  // ── OPERATIONAL BURDEN ESTIMATE ──
+  if (rd.posture === 'watch' || rd.posture === 'restrict' || rd.posture === 'suspend') {
+    var topEv2 = rd.signals[0] ? rd.signals[0].sig.event || '' : '';
+    var burdens = [];
+    if (topEv2.indexOf('Flood')>=0||topEv2.indexOf('flood')>=0||topEv2.indexOf('Gauge')>=0) {
+      burdens = ['Route reliability: conditions consistent with low-corridor degradation risk','Remote assistance demand: trajectory likely increasing','Rider ETA stability: moderate disruption risk if flooding persists','Dispatch continuity: risk increasing in flood-exposed segments'];
+    } else if (topEv2.indexOf('Thunderstorm')>=0||topEv2.indexOf('Wind')>=0) {
+      burdens = ['Route reliability: mildly elevated risk in exposed corridors','Remote assistance demand: potential increase during cell passage','Rider ETA stability: minor disruption risk','Dispatch continuity: monitor for anomalies'];
+    } else if (topEv2.indexOf('Red Flag')>=0||topEv2.indexOf('Fire')>=0) {
+      burdens = ['Perception degradation: smoke visibility risk if ignition develops','Remote assistance demand: possible increase','Route reliability: exposure near fire perimeter corridors','Rider ETA stability: contingent on fire progression'];
+    } else if (topEv2.indexOf('Tornado')>=0) {
+      burdens = ['Route reliability: severe degradation risk — conditions inconsistent with safe operations','Remote assistance demand: surge expected','Dispatch continuity: suspension likely required','Rider ETA stability: severe disruption'];
+    } else {
+      burdens = ['Route reliability: monitor baseline','Remote assistance demand: elevated awareness','Rider ETA stability: conditions developing','Dispatch continuity: corridor-level assessment needed'];
+    }
+    html += '<div style="padding:12px 18px;border-bottom:1px solid #131a24;">';
+    html += '<div style="font-size:8px;font-weight:700;letter-spacing:0.1em;color:#4a6070;text-transform:uppercase;margin-bottom:8px;">Operational Burden Estimate</div>';
+    html += '<div style="font-size:9px;color:#5a7070;line-height:1.9;">';
+    burdens.forEach(function(b){
+      var parts = b.split(':');
+      html += '<div><span style="color:#4a6060">'+parts[0]+':</span><span style="color:#5a7070">'+parts.slice(1).join(':')+'</span></div>';
+    });
+    html += '</div></div>';
+  }
+
+
   var html = '';
   if (rd.assessment && rd.posture !== 'normal') {
     var a = rd.assessment;
@@ -1319,15 +1447,32 @@ function renderDetail(regionId) {
     html += '<div style="font-size:11px;color:#a8b8c8;line-height:1.7;margin-bottom:12px;">'+a.rationale+'</div>';
 
     // Confidence + Validation side by side
-    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px;">';
-    html += '<div style="background:#0a0e16;padding:8px 10px;border-radius:3px;">';
-    html += '<div style="font-size:8px;color:#3a5070;margin-bottom:3px;text-transform:uppercase;letter-spacing:0.08em">Confidence</div>';
-    html += '<div style="font-size:13px;font-weight:700;color:'+cc+'">'+a.confidence+'</div>';
-    html += '</div>';
-    html += '<div style="background:#0a0e16;padding:8px 10px;border-radius:3px;">';
+    // Multi-dimensional confidence
+    var sigConf = a.hasHighAuth ? 'HIGH' : a.hasIntersect ? 'MODERATE' : 'LOW';
+    var opsConf = a.hasGaugeCorr && a.hasIntersect ? 'MODERATE' : a.hasIntersect ? 'LOW' : 'UNCONFIRMED';
+    var escConf = a.confidence;
+    var recConf = rd.posture === 'suspend' || rd.posture === 'restrict' ? 'PENDING' : 'NOT ASSESSED';
+    var dimColor = function(v) { return v==='HIGH'?'#1a8a5a':v==='MODERATE'?'#a07820':v==='LOW'?'#5555aa':v==='PENDING'?'#a04818':'#3a5070'; };
+
+    html += '<div style="margin-bottom:10px;">';
+    html += '<div style="font-size:8px;color:#3a5070;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">Confidence Dimensions</div>';
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">';
+    [
+      ['Signal', sigConf, 'Source reliability'],
+      ['Operational', opsConf, 'Fleet effect confirmed'],
+      ['Escalation', escConf, 'Intervention justified'],
+      ['Recovery', recConf, 'Normalization readiness'],
+    ].forEach(function(dim){
+      html += '<div style="background:#0a0e16;padding:6px 8px;border-radius:2px;">';
+      html += '<div style="font-size:8px;color:#3a5070;margin-bottom:2px;">'+dim[0]+'</div>';
+      html += '<div style="font-size:10px;font-weight:700;color:'+dimColor(dim[1])+'">'+dim[1]+'</div>';
+      html += '</div>';
+    });
+    html += '</div></div>';
+
+    html += '<div style="background:#0a0e16;padding:8px 10px;border-radius:3px;margin-bottom:10px;">';
     html += '<div style="font-size:8px;color:#3a5070;margin-bottom:3px;text-transform:uppercase;letter-spacing:0.08em">Action</div>';
     html += '<div style="font-size:10px;font-weight:600;color:'+vc+';line-height:1.4">'+a.validation+'</div>';
-    html += '</div>';
     html += '</div>';
 
     // Telemetry focus — secondary, subtle
@@ -1344,6 +1489,23 @@ function renderDetail(regionId) {
       html += '</div>';
     }
 
+    // Operational consequences for this posture
+    var consequences = {
+      monitor: ['Increase signal monitoring cadence','Prepare contingency routing analysis','Elevate staffing awareness — no action yet','Document condition for posture record'],
+      watch:   ['Prepare corridor-level routing restrictions','Pre-stage remote assistance capacity increase','Brief dispatch team on contingency protocols','Identify lowest-resilience routes for priority review'],
+      restrict:['Activate selective corridor restrictions per playbook','Reduce service area exposure in affected zones','Increase remote assistance staffing','Prepare rider communication protocols','Disable dispatch to highest-risk route segments'],
+      suspend: ['Halt all dispatch per suspension protocol','Activate rider rebooking and communication workflow','Initiate safety review and recovery command workflow','Shift to restoration posture — recovery validation required before re-entry']
+    };
+    var cons = consequences[rd.posture];
+    if (cons) {
+      var consColor = {monitor:'#5555aa',watch:'#a07820',restrict:'#a04818',suspend:'#a01828'}[rd.posture]||'#3a5070';
+      html += '<div style="margin-top:8px;border-top:1px solid #131a24;padding-top:8px;">';
+      html += '<div style="font-size:8px;font-weight:700;letter-spacing:0.1em;color:'+consColor+';text-transform:uppercase;margin-bottom:6px;">Operational Consequences — '+rd.posture.toUpperCase()+'</div>';
+      html += '<div style="font-size:9px;color:#5a7070;line-height:1.9;">';
+      cons.forEach(function(line){ html += '· '+line+'<br>'; });
+      html += '</div></div>';
+    }
+
     // Telemetry dependency
     var telDepClass = a.validation.indexOf('Act now')>=0||a.validation.indexOf('immediately')>=0 ? 'NOT REQUIRED' : a.validation.indexOf('not required')>=0 ? 'RECOMMENDED' : 'REQUIRED';
     var telDepColor = telDepClass==='NOT REQUIRED'?'#1a8a5a':telDepClass==='RECOMMENDED'?'#a07820':'#c04040';
@@ -1356,41 +1518,65 @@ function renderDetail(regionId) {
   }
   rd.signals.forEach(function(ev) {
     var sig = ev.sig;
+    if (sig.type === 'spc') {
+      html += '<div style="padding:10px 18px;border-bottom:1px solid #131a24;opacity:0.6;">';
+      html += '<div style="font-size:8px;color:#5a6a50;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:4px;font-weight:600">Contextual / Probabilistic</div>';
+      html += '<div style="font-size:11px;color:#8a9878;margin-bottom:3px;">'+sig.event+'</div>';
+      html += '<div style="font-size:9px;color:#3a4a30;font-style:italic;">SPC Day 1 forecast indicator — probabilistic context only, not an observed condition.</div>';
+      html += '</div>';
+      return;
+    }
     var act = getAction(sig, region.name, ev.score);
     var col = postureColor(rd.posture);
 
-    html += '<div class="detail-signal">';
-    html += '<div class="ds-top">';
-    html += '<div class="ds-event">' + sig.event + '</div>';
-    html += '<div class="ds-score" style="color:' + col + '">' + ev.score + '</div>';
+    html += '<div style="padding:16px 18px;border-bottom:1px solid #131a24;">';
+
+    // Lead with operational impact
+    html += '<div style="background:#0a0e16;border-radius:3px;padding:10px 12px;margin-bottom:12px;border-left:2px solid '+col+';">';
+    html += '<div style="font-size:8px;color:#3a5070;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:5px;">Operational Impact & Recommended Action</div>';
+    html += '<div style="font-size:11px;color:#a8b8c8;line-height:1.7;">'+act+'</div>';
     html += '</div>';
 
-    if (sig.area) {
-      html += '<div class="ds-area">' + sig.area.slice(0, 100) + (sig.area.length > 100 ? '…' : '') + '</div>';
-    }
-    html += '<div class="ds-source">' + sig.src + ' · ' + timeAgo(sig.sent) + '</div>';
+    // Signal identity
+    html += '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:4px;">';
+    html += '<div style="font-size:13px;font-weight:600;color:#c8d8e8;">'+sig.event+'</div>';
+    html += '</div>';
+    if (sig.area) html += '<div style="font-size:11px;color:#4a6070;margin-bottom:4px;line-height:1.5;">'+sig.area.slice(0,100)+(sig.area.length>100?'…':'')+'</div>';
+    html += '<div style="font-size:10px;color:#2a3a50;margin-bottom:10px;">'+sig.src+' · '+timeAgo(sig.sent)+'</div>';
 
-    // Scoring breakdown
-    html += '<div class="ds-scoring">';
-    ev.lineage.forEach(function(l) {
-      if (l.final) return;
-      html += '<div class="ds-score-row">';
-      html += '<span class="ds-score-lbl" style="color:' + l.color + '">' + l.lbl + '</span>';
-      html += '<span class="ds-score-val" style="color:' + l.color + '">' + (l.val >= 0 ? '+' : '') + l.val + '</span>';
+    // Contributing Evidence — plain language
+    var evFactors = ev.lineage.filter(function(l){ return !l.final; });
+    if (evFactors.length > 0) {
+      html += '<div style="margin-bottom:8px;">';
+      html += '<div style="font-size:8px;color:#2a3a50;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">Contributing Evidence</div>';
+      evFactors.forEach(function(l) {
+        var dot = l.val < 0 ? '○' : '●';
+        var dotColor = l.val < 0 ? '#5a3030' : l.color === '#3a5888' ? '#3a6888' : l.color === '#6a5818' ? '#6a6030' : l.color === '#1e6e48' ? '#1e6e48' : '#4a6070';
+        var stmt = '';
+        if (l.type === 'base') stmt = 'Authoritative signal active — ' + sig.src;
+        else if (l.type === 'zone' && l.lbl.indexOf('Intersects') >= 0) stmt = 'Confirmed intersection with operating region';
+        else if (l.type === 'zone') stmt = 'Signal within operational proximity of region';
+        else if (l.type === 'corr') stmt = 'Independent physical corroboration — ' + l.lbl;
+        else if (l.type === 'persist') stmt = 'Condition persistent across refresh cycles';
+        else if (l.type === 'decay') stmt = 'Operational effects not yet independently confirmed';
+        else stmt = l.lbl;
+        html += '<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;">';
+        html += '<span style="color:'+dotColor+';font-size:10px;flex-shrink:0;margin-top:1px;">'+dot+'</span>';
+        html += '<span style="font-size:10px;color:#5a7080;line-height:1.5;">'+stmt+'</span>';
+        html += '</div>';
+      });
+      // Posture justification score quietly
+      html += '<details style="margin-top:6px;">';
+      html += '<summary style="font-size:8px;color:#1e2c40;cursor:pointer;list-style:none;letter-spacing:0.06em;padding:2px 0;">▸ Scoring detail</summary>';
+      html += '<div style="margin-top:4px;font-size:9px;color:#2a3a50;font-family:monospace;line-height:1.8;padding:6px 8px;background:#08090e;border-radius:2px;">';
+      ev.lineage.forEach(function(l){
+        if (l.final) return;
+        html += (l.val>=0?'+':'')+l.val+'  '+l.lbl+'<br>';
+      });
+      html += '<div style="border-top:1px solid #1a2030;margin-top:2px;padding-top:2px;color:#3a5070;">= '+ev.score+' Posture Justification</div>';
+      html += '</div></details>';
       html += '</div>';
-    });
-    // Final score row
-    html += '<div class="ds-score-row" style="background:#0a0e16">';
-    html += '<span class="ds-score-lbl" style="color:#c8d8e8;font-weight:500">Operational relevance</span>';
-    html += '<span class="ds-score-val" style="color:' + col + ';font-size:12px">' + ev.score + '</span>';
-    html += '</div>';
-    html += '</div>';
-
-    // Action
-    html += '<div class="ds-action">';
-    html += '<div class="ds-action-lbl">Recommended action</div>';
-    html += '<div class="ds-action-txt">' + act + '</div>';
-    html += '</div>';
+    }
 
     html += '</div>';
   });
@@ -1427,6 +1613,10 @@ function renderStats() {
   document.getElementById('p-sup').textContent = stats.sup;
   document.getElementById('p-rel').textContent = stats.rel;
   document.getElementById('p-esc').textContent = stats.esc;
+  // Escalations avoided = region-relevant signals that did NOT trigger posture change
+  var avoided = Math.max(0, stats.rel - stats.esc);
+  var avoEl = document.getElementById('p-avo');
+  if (avoEl) avoEl.textContent = avoided;
 }
 
 // ─────────────────────────────────────────────
@@ -1789,15 +1979,16 @@ async function generateSitrep() {
     'Each line must start with the label in caps followed by a colon.',
     'Be direct. Be brief. No filler. No weather description.',
     '',
-    'CRITICAL: Never assert operational consequences without corroboration. Use: "risk increasing" not "disruption confirmed".',
-    'LOW confidence → monitoring only. Contingency preparation. No operational change.',
-    'MODERATE confidence → routing analysis, remote assistance staging, selective restriction preparation.',
-    'HIGH confidence + corroboration → active rerouting preparation, dispatch restriction evaluation.',
-    'NEVER say "escalate to director/coordinator" — escalation paths are defined in standing playbooks.',
-    'NEVER assert telemetry exists — frame as "in production, telemetry would help confirm..."',
-    'Explicitly separate: environmental authority (NWS signal credibility) vs operational confidence (fleet effect confirmation).',
-    'If most regions are NORMAL, say so directly — correct suppression of 50+ signals is the system working as designed.',
-    'Tornado Warning, Flash Flood Emergency, Evacuation Order intersecting a region: action justified per standing playbook without telemetry.'
+    'CRITICAL: Write like an experienced ops center analyst — direct, plain, no jargon.',
+    'NEVER use: "telemetry ingestion", "water crossing hazard", "escalating faster than", "corroboration velocity", or any phrase that sounds like AI trying to sound operational.',
+    'NEVER assert telemetry exists. If you need to reference it say: "roadway or gauge data would confirm" — not "telemetry ingestion".',
+    'Separate environmental authority from operational confidence cleanly: "NWS warning is authoritative. Fleet impact is unconfirmed."',
+    'Actions should be plain and proportional: "Begin routing review" not "initiate routing analysis protocols".',
+    'LOW confidence → monitoring only, no operational change.',
+    'MODERATE → routing review, remote assistance readiness, no restriction yet.',
+    'HIGH + corroboration → prepare corridor restrictions, stage capacity.',
+    'If most regions are NORMAL say so — that is the system working correctly.',
+    'Authoritative events intersecting a region justify action without waiting for corroboration.'
   ].join('\n');
 
   try {
@@ -1851,8 +2042,15 @@ async function generateSitrep() {
 // ─────────────────────────────────────────────
 // INIT
 // ─────────────────────────────────────────────
-initMap();
-doRefresh();
+// Mobile detection
+if (window.innerWidth < 768) {
+  document.getElementById('mobile-notice').style.display = 'flex';
+  document.getElementById('loader').style.display = 'none';
+} else {
+  document.getElementById('mobile-notice').style.display = 'none';
+  initMap();
+  doRefresh();
+}
 setInterval(doRefresh, 5 * 60 * 1000);
 </script>
 </body>
