@@ -10,8 +10,6 @@
 
 ## 🎯 What It Does
 
-This is **not a weather dashboard.**
-
 It answers one operational question:
 
 > *"Which autonomous fleet service regions currently require attention — and is escalation actually justified?"*
