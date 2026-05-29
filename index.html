@@ -1935,8 +1935,7 @@ async function doRefresh() {
   document.getElementById('loader').style.display = 'none';
   if (btn) btn.disabled = false;
 
-  // Auto-generate SITREP after data loads
-  generateSitrep();
+  // SITREP is manual only — click ↺ Briefing to generate
 }
 
 // ─────────────────────────────────────────────
