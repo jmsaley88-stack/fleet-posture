@@ -392,7 +392,10 @@ html, body { overflow: auto !important; }
     <button class="map-btn on" id="btn-regions" onclick="toggleMap('regions')">Regions</button>
     <button class="map-btn on" id="btn-hazards" onclick="toggleMap('hazards')">Hazards</button>
     <button class="map-btn on" id="btn-firewx" onclick="toggleMap('firewx')">Fire Wx</button>
-    <button class="map-btn on" id="btn-spc" onclick="toggleMap('spc')">SPC</button>
+    <button class="map-btn on" id="btn-spc" onclick="toggleMap('spc')">SPC Cat</button>
+    <button class="map-btn" id="btn-torn" onclick="toggleMap('torn')">Tornado %</button>
+    <button class="map-btn" id="btn-hail" onclick="toggleMap('hail')">Hail %</button>
+    <button class="map-btn" id="btn-wind" onclick="toggleMap('wind')">Wind %</button>
     <button class="map-btn on" id="btn-gauges" onclick="toggleMap('gauges')">Gauges</button>
     <button class="map-btn" id="btn-radar" onclick="toggleMap('radar')">Radar</button>
   </div>
@@ -543,11 +546,12 @@ var gaugeData   = {};
 var regionData  = {};   // id → { posture, score, signals[], suppressed }
 var eventStore  = {};   // signalId:regionId → { cycles }
 var selectedId  = null;
-var mapVis      = { regions:true, hazards:true, firewx:true, spc:true, gauges:true, radar:false };
-var mapLayers   = { regions:[], hazards:[], firewx:[], spc:[], gauges:[] };
+var mapVis      = { regions:true, hazards:true, firewx:true, spc:true, gauges:true, radar:false, torn:false, hail:false, wind:false };
+var mapLayers   = { regions:[], hazards:[], firewx:[], spc:[], gauges:[], torn:[], hail:[], wind:[] };
 var radarLayers = [], radarTimer = null, radarIdx = 0;
 var leafMap     = null;
 var stats       = { raw:0, sup:0, rel:0, esc:0 };
+var spcTorn = null, spcHail = null, spcWind = null;
 var suppressionBreakdown = { noIntersection:0, advisoryOnly:0, duplicate:0, belowThreshold:0 };
 var postureHistory = {}; // regionId -> { prev, current, changedAt, reason }
 var postureTimeline = {}; // regionId -> [{ posture, at, reason }]
@@ -690,7 +694,7 @@ function normFire(f, isRFW, zoneGeoms) {
 }
 
 function normSPC(f) {
-  var dn = f.properties.DN || 2;
+  var dn = f.properties.DN || f.properties.dn || 2;
   var colors = { 2:'#3a8a3a', 3:'#8a8a20', 4:'#aa8820', 5:'#aa5820', 6:'#aa2020' };
   // SPC outlooks inform readiness posture, not escalation scoring directly
   // Scored low enough that they never drive posture alone — awareness layer only
@@ -776,14 +780,31 @@ async function fetchAllData() {
   rfwResult.forEach(function(r){ if(r.status==='fulfilled'&&r.value&&r.value.features) fireCount+=r.value.features.length; });
   recordValidation('Fire Wx (RFW/FWW)', fireCount, fireCount + ' alerts received', Date.now());
 
-  // SPC
+  // SPC categorical + probability layers
   setMsg('Fetching SPC outlook…');
+  spcTorn = null; spcHail = null; spcWind = null;
   try {
     var spc = await pjson('https://www.spc.noaa.gov/products/outlook/day1otlk_cat.nolyr.geojson');
     if (spc && spc.features) {
       spc.features.forEach(function(f) { allSignals.push(normSPC(f)); });
     }
   } catch(e) { recordValidation('SPC Outlook', -1, 'Fetch failed', Date.now()); }
+
+  // SPC probability layers — for map visualization and corroboration only
+  try {
+    spcTorn = await pjson('https://www.spc.noaa.gov/products/outlook/day1otlk_torn.nolyr.geojson');
+  } catch(e) { spcTorn = null; }
+  try {
+    spcHail = await pjson('https://www.spc.noaa.gov/products/outlook/day1otlk_hail.nolyr.geojson');
+  } catch(e) { spcHail = null; }
+  try {
+    spcWind = await pjson('https://www.spc.noaa.gov/products/outlook/day1otlk_wind.nolyr.geojson');
+  } catch(e) { spcWind = null; }
+
+  var spcProbCount = (spcTorn&&spcTorn.features?spcTorn.features.length:0) +
+                     (spcHail&&spcHail.features?spcHail.features.length:0) +
+                     (spcWind&&spcWind.features?spcWind.features.length:0);
+  recordValidation('SPC Probability Layers', spcProbCount, spcProbCount + ' probability zones (tornado/hail/wind)', Date.now());
 
   // USGS quakes
   setMsg('Fetching seismic data…');
@@ -914,6 +935,8 @@ function runDetection() {
     var assignedToAny = false;
 
     REGIONS.forEach(function(region) {
+      // SPC outlooks are context only — never drive posture
+      if (sig.type === 'spc') return;
       var rel = signalRelevance(sig, region);
       if (!rel.inside && !rel.near) return;
 
@@ -1055,6 +1078,60 @@ function runDetection() {
     else                                    rd.posture = 'normal';
     if (rd.posture !== 'normal') stats.esc++;
     rd.assessment = computeAssessment(rd);
+
+    // Elevated awareness — SPC probability active over normal regions
+    rd.elevatedAwareness = null;
+    if (rd.posture === 'normal') {
+      var awarenessThreats = [];
+      var layers = [
+        {data: spcTorn, type: 'Tornado', threshold: 2, color: '#a01828'},
+        {data: spcHail, type: 'Hail',    threshold: 5, color: '#4488ff'},
+        {data: spcWind, type: 'Wind',    threshold: 5, color: '#aa44ff'}
+      ];
+      layers.forEach(function(l) {
+        if (!l.data || !l.data.features) return;
+        l.data.features.forEach(function(f) {
+          if (!f.geometry) return;
+          var prob = parseInt(f.properties.DN || f.properties.dn || f.properties.LABEL || '0') || 0;
+          if (prob < l.threshold) return;
+
+          // Use both geometryRelevance AND a direct bbox overlap check
+          // SPC polygons are large — sample more coordinates
+          var rel = geometryRelevance(f.geometry, r);
+          var hit = rel.inside || rel.near;
+
+          // Also check if region center is inside SPC polygon bounding box
+          if (!hit && f.geometry) {
+            var coords = [];
+            if (f.geometry.type === 'Polygon') coords = f.geometry.coordinates[0] || [];
+            else if (f.geometry.type === 'MultiPolygon') {
+              f.geometry.coordinates.forEach(function(ring){ coords = coords.concat(ring[0]||[]); });
+            }
+            if (coords.length > 0) {
+              var lngs = coords.map(function(c){return c[0];});
+              var lats = coords.map(function(c){return c[1];});
+              var minLng = Math.min.apply(null,lngs), maxLng = Math.max.apply(null,lngs);
+              var minLat = Math.min.apply(null,lats), maxLat = Math.max.apply(null,lats);
+              // Check if region center or corners are inside SPC polygon bbox
+              hit = (r.lat >= minLat && r.lat <= maxLat && r.lng >= minLng && r.lng <= maxLng) ||
+                    (r.bounds.minLat >= minLat && r.bounds.minLat <= maxLat && r.bounds.minLng >= minLng && r.bounds.minLng <= maxLng);
+            }
+          }
+
+          if (hit) {
+            awarenessThreats.push({ type: l.type, prob: prob, color: l.color });
+          }
+        });
+      });
+      if (awarenessThreats.length > 0) {
+        // Dedupe by type, keep highest prob
+        var byType = {};
+        awarenessThreats.forEach(function(t) {
+          if (!byType[t.type] || t.prob > byType[t.type].prob) byType[t.type] = t;
+        });
+        rd.elevatedAwareness = Object.values(byType);
+      }
+    }
 
     // Track posture changes with timestamp and reason
     var prev = postureHistory[r.id] ? postureHistory[r.id].current : 'normal';
@@ -1299,6 +1376,12 @@ function renderRegionList() {
     var oa = POSTURE_ORDER.indexOf(pa);
     var ob = POSTURE_ORDER.indexOf(pb);
     if (oa !== ob) return oa - ob;
+    // Within normal, elevated awareness regions sort first
+    var rdA = regionData[a.id] || {};
+    var rdB = regionData[b.id] || {};
+    var awA = rdA.elevatedAwareness && rdA.elevatedAwareness.length > 0 ? 0 : 1;
+    var awB = rdB.elevatedAwareness && rdB.elevatedAwareness.length > 0 ? 0 : 1;
+    if (awA !== awB) return awA - awB;
     return a.name.localeCompare(b.name);
   });
 
@@ -1315,6 +1398,11 @@ function renderRegionList() {
       changeNote = (esc2?'↑ ':'↓ ') + hist.prev.toUpperCase() + ' → ' + hist.current.toUpperCase() + ' · ' + (elapsed2<1?'just now':elapsed2+'m ago');
     }
     var subText = changeNote || (n > 0 ? (n + ' signal' + (n > 1 ? 's' : '') + ' contributing') : 'No relevant signals');
+    // Elevated awareness override for normal regions
+    if (rd.posture === 'normal' && rd.elevatedAwareness && rd.elevatedAwareness.length > 0) {
+      var threatNames = rd.elevatedAwareness.map(function(t){ return t.prob + '% ' + t.type; }).join(' · ');
+      subText = 'Elevated Awareness — SPC: ' + threatNames;
+    }
     var scoreText = rd.score > 0 ? ('score ' + rd.score) : '';
     var isActive = selectedId === region.id ? ' active' : '';
 
@@ -1330,6 +1418,8 @@ function renderRegionList() {
     if (rd.assessment) {
       var cc = rd.assessment.confidence==='HIGH'?'#1a8a5a':rd.assessment.confidence==='MODERATE'?'#a07820':'#5555aa';
       html += '<div style="font-size:8px;color:'+cc+';font-weight:600;margin-top:3px;text-align:right;letter-spacing:0.05em">'+rd.assessment.confidence+'</div>';
+    } else if (rd.elevatedAwareness && rd.elevatedAwareness.length > 0) {
+      html += '<div style="font-size:8px;color:#a07820;font-weight:600;margin-top:3px;text-align:right;letter-spacing:0.05em">AWARENESS</div>';
     } else if (rd.posture === 'normal') {
       html += '<div style="font-size:8px;color:#2a3a50;margin-top:3px;text-align:right;">—</div>';
     }
@@ -1372,7 +1462,40 @@ function renderDetail(regionId) {
   if (rd.signals.length === 0) {
     var supNote = rd.suppressed > 0 ?
       '<div style="margin-top:12px;font-size:10px;color:#2a3a50">' + rd.suppressed + ' signal' + (rd.suppressed > 1 ? 's' : '') + ' evaluated — none met operational relevance threshold.</div>' : '';
-    body.innerHTML = '<div class="detail-empty"><div class="detail-empty-ok">Normal</div>No operationally relevant environmental conditions detected.' + supNote + '</div>';
+
+    // Elevated awareness block for normal regions with SPC probability
+    var awarenessHtml = '';
+    if (rd.elevatedAwareness && rd.elevatedAwareness.length > 0) {
+      awarenessHtml += '<div style="padding:14px 20px;border-bottom:1px solid #131a24;background:#0a0e16;">';
+      awarenessHtml += '<div style="font-size:9px;font-weight:700;letter-spacing:0.1em;color:#a07820;text-transform:uppercase;margin-bottom:8px;">Elevated Awareness — No Action Required</div>';
+      awarenessHtml += '<div style="font-size:11px;color:#8a8040;line-height:1.7;margin-bottom:10px;">SPC probabilistic forecast indicates elevated threat conditions in this region. No NWS warning is active. Operational posture remains NORMAL. Pre-position awareness only.</div>';
+      awarenessHtml += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;">';
+      rd.elevatedAwareness.forEach(function(t) {
+        awarenessHtml += '<div style="background:#0a0c10;padding:8px;border-radius:3px;border-top:2px solid '+t.color+';">';
+        awarenessHtml += '<div style="font-size:8px;color:#3a5070;margin-bottom:2px;text-transform:uppercase;">'+t.type+'</div>';
+        awarenessHtml += '<div style="font-size:14px;font-weight:700;color:'+t.color+'">'+t.prob+'%</div>';
+        awarenessHtml += '<div style="font-size:8px;color:#3a5070;">probability</div>';
+        awarenessHtml += '</div>';
+      });
+      awarenessHtml += '</div>';
+
+      // What would escalate this region
+      awarenessHtml += '<div style="font-size:8px;font-weight:700;letter-spacing:0.1em;color:#5a7050;text-transform:uppercase;margin-bottom:5px;">Escalation Triggers</div>';
+      awarenessHtml += '<div style="font-size:9px;color:#4a6040;line-height:1.8;">';
+      rd.elevatedAwareness.forEach(function(t) {
+        if (t.type === 'Tornado') {
+          awarenessHtml += '· NWS Tornado Warning issued → immediate RESTRICT/SUSPEND<br>';
+          awarenessHtml += '· NWS Tornado Watch issued → WATCH posture<br>';
+        } else if (t.type === 'Hail' || t.type === 'Wind') {
+          awarenessHtml += '· NWS Severe Thunderstorm Warning issued → WATCH posture<br>';
+        }
+      });
+      awarenessHtml += '</div>';
+      awarenessHtml += '<div style="margin-top:8px;font-size:9px;color:#3a5070;font-style:italic;">SPC probability data is a forecast, not an observation. Posture escalation requires NWS warning issuance.</div>';
+      awarenessHtml += '</div>';
+    }
+
+    body.innerHTML = awarenessHtml + '<div class="detail-empty"><div class="detail-empty-ok">Normal</div>No operationally relevant environmental conditions detected.' + supNote + '</div>';
     return;
   }
 
@@ -1762,19 +1885,19 @@ function renderMap() {
         var geom = sig.geometry;
         if (geom && (geom.type === 'Polygon' || geom.type === 'MultiPolygon')) {
           try {
-            var coords = geom.type === 'Polygon' ? geom.coordinates[0] : geom.coordinates[0][0];
-            if (!coords || coords.length < 8) return;
-            // Skip rectangular zone boxes
-            var uniqueLngs = {};
-            var uniqueLats = {};
-            coords.forEach(function(c) {
-              uniqueLngs[Math.round(c[0]*10)] = 1;
-              uniqueLats[Math.round(c[1]*10)] = 1;
-            });
-            if (Object.keys(uniqueLngs).length <= 3 || Object.keys(uniqueLats).length <= 3) return;
             var layer = L.geoJSON({ type:'Feature', geometry: geom }, {
-              style: function() { return { color:color, weight:1.5, fillColor:color, fillOpacity:0.1, opacity:0.6 }; }
+              style: function() {
+                // Color by event type
+                var ev = sig.event || '';
+                var c2 = ev.indexOf('Tornado')>=0 ? '#ff2020' :
+                         ev.indexOf('Flash Flood')>=0 ? '#aa2090' :
+                         ev.indexOf('Flood')>=0 ? '#4488ff' :
+                         ev.indexOf('Thunderstorm')>=0 ? '#ffaa00' :
+                         color;
+                return { color:c2, weight:2, fillColor:c2, fillOpacity:0.12, opacity:0.75 };
+              }
             }).addTo(leafMap);
+            layer.bindPopup('<b style="color:'+color+'">'+sig.event+'</b><br><span style="font-size:10px;color:#4a6070">'+(sig.area||'').slice(0,60)+'</span>');
             layer.on('click', function() { selectRegion(region.id); });
             mapLayers.hazards.push(layer);
           } catch(e) {}
@@ -1820,6 +1943,58 @@ function renderMap() {
         }).addTo(leafMap);
         layer.bindPopup('<b style="color:' + (sig.spcColor||'#888820') + '">' + sig.event + '</b>');
         mapLayers.spc.push(layer);
+      } catch(e) {}
+    });
+  }
+
+  // SPC Tornado probability
+  clearMapLayers('torn');
+  if (mapVis.torn && spcTorn && spcTorn.features) {
+    spcTorn.features.forEach(function(f) {
+      if (!f.geometry) return;
+      try {
+        var prob = f.properties.DN || f.properties.dn || f.properties.LABEL || '2';
+        var probNum = parseInt(prob) || 2;
+        var color = probNum >= 30 ? '#ff0000' : probNum >= 15 ? '#ff6600' : probNum >= 10 ? '#ff9900' : probNum >= 5 ? '#ffcc00' : '#00cc44';
+        var layer = L.geoJSON({type:'Feature',geometry:f.geometry}, {
+          style: function(){ return {color:color,weight:1,fillColor:color,fillOpacity:0.15,opacity:0.7,dashArray:'4,3'}; }
+        }).addTo(leafMap);
+        layer.bindPopup('<b style="color:'+color+'">Tornado Probability: '+prob+'%</b><br><span style="font-size:10px;color:#4a6070">SPC Day 1</span>');
+        mapLayers.torn.push(layer);
+      } catch(e) {}
+    });
+  }
+
+  // SPC Hail probability
+  clearMapLayers('hail');
+  if (mapVis.hail && spcHail && spcHail.features) {
+    spcHail.features.forEach(function(f) {
+      if (!f.geometry) return;
+      try {
+        var prob = f.properties.DN || f.properties.dn || f.properties.LABEL || '5';
+        var color = '#00aaff';
+        var layer = L.geoJSON({type:'Feature',geometry:f.geometry}, {
+          style: function(){ return {color:color,weight:1,fillColor:color,fillOpacity:0.12,opacity:0.6,dashArray:'4,3'}; }
+        }).addTo(leafMap);
+        layer.bindPopup('<b style="color:'+color+'">Hail Probability: '+prob+'%</b><br><span style="font-size:10px;color:#4a6070">SPC Day 1</span>');
+        mapLayers.hail.push(layer);
+      } catch(e) {}
+    });
+  }
+
+  // SPC Wind probability
+  clearMapLayers('wind');
+  if (mapVis.wind && spcWind && spcWind.features) {
+    spcWind.features.forEach(function(f) {
+      if (!f.geometry) return;
+      try {
+        var prob = f.properties.DN || f.properties.dn || f.properties.LABEL || '5';
+        var color = '#aa44ff';
+        var layer = L.geoJSON({type:'Feature',geometry:f.geometry}, {
+          style: function(){ return {color:color,weight:1,fillColor:color,fillOpacity:0.12,opacity:0.6,dashArray:'4,3'}; }
+        }).addTo(leafMap);
+        layer.bindPopup('<b style="color:'+color+'">Wind Probability: '+prob+'%</b><br><span style="font-size:10px;color:#4a6070">SPC Day 1</span>');
+        mapLayers.wind.push(layer);
       } catch(e) {}
     });
   }
@@ -2019,6 +2194,46 @@ async function generateSitrep() {
     }
   });
 
+  // Build SPC probability context
+  var spcContext = [];
+  function getSPCMaxProb(layer) {
+    if (!layer || !layer.features) return null;
+    var max = 0;
+    var maxLabel = '';
+    layer.features.forEach(function(f) {
+      var prob = parseInt(f.properties.DN || f.properties.dn || f.properties.LABEL || '0') || 0;
+      if (prob > max) { max = prob; maxLabel = f.properties.LABEL2 || f.properties.LABEL || prob+'%'; }
+    });
+    return max > 0 ? { prob: max, label: maxLabel } : null;
+  }
+  var tornProb = getSPCMaxProb(spcTorn);
+  var hailProb = getSPCMaxProb(spcHail);
+  var windProb = getSPCMaxProb(spcWind);
+  if (tornProb) spcContext.push('Tornado probability: ' + tornProb.label + ' (within 25mi of a point)');
+  if (hailProb) spcContext.push('Hail probability: ' + hailProb.label + ' (1"+ hail within 25mi)');
+  if (windProb) spcContext.push('Damaging wind probability: ' + windProb.label + ' (58mph+ within 25mi)');
+
+  // Check which service regions overlap SPC probability polygons
+  REGIONS.forEach(function(r) {
+    if (!spcTorn && !spcHail && !spcWind) return;
+    var layers = [
+      {data: spcTorn, type: 'tornado'},
+      {data: spcHail, type: 'hail'},
+      {data: spcWind, type: 'wind'}
+    ];
+    layers.forEach(function(l) {
+      if (!l.data || !l.data.features) return;
+      l.data.features.forEach(function(f) {
+        if (!f.geometry) return;
+        var rel = geometryRelevance(f.geometry, r);
+        if (rel.inside) {
+          var prob = f.properties.LABEL || '?';
+          spcContext.push(r.name + ' overlaps SPC ' + l.type + ' probability zone (' + prob + '%)');
+        }
+      });
+    });
+  });
+
   var regionAssessments = [];
   REGIONS.forEach(function(r) {
     var rd = regionData[r.id] || {posture:'normal',score:0,signals:[],assessment:null};
@@ -2034,6 +2249,8 @@ async function generateSitrep() {
     'The detection engine determined posture. Your role: produce a structured SITREP.',
     '',
     'Pipeline: '+stats.raw+' signals ingested. '+stats.sup+' suppressed. '+stats.rel+' operationally relevant. '+stats.esc+' posture changes.',
+    '',
+    spcContext.length > 0 ? 'SPC Probabilistic Context (not posture drivers — awareness only): ' + spcContext.join('; ') : 'No significant SPC probability areas over service regions.',
     '',
     (function(){
       var changes = [];
@@ -2072,7 +2289,9 @@ async function generateSitrep() {
     'MODERATE → routing review, remote assistance readiness, no restriction yet.',
     'HIGH + corroboration → prepare corridor restrictions, stage capacity.',
     'If most regions are NORMAL say so — that is the system working correctly.',
-    'Authoritative events intersecting a region justify action without waiting for corroboration.'
+    'Authoritative events intersecting a region justify action without waiting for corroboration.',
+    'SPC probability data is CONTEXT ONLY — never cite it as justification for posture changes. Use it to add temporal awareness: "SPC indicates elevated tornado probability in the region — if conditions develop, escalation could be rapid." Never say "SPC data confirms" anything.',
+    'Interpret SPC probabilities correctly: 2-5% = elevated awareness, 10-15% = notable risk, 30%+ = significant threat. These are probabilities of occurrence within 25 miles of a point, not certainties.'
   ].join('\n');
 
   try {
