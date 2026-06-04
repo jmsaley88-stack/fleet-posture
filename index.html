@@ -1884,6 +1884,9 @@ function renderDetail(regionId) {
     if (sig.area) html += '<div style="font-size:11px;color:#4a6070;margin-bottom:4px;line-height:1.5;">'+sig.area.slice(0,100)+(sig.area.length>100?'…':'')+'</div>';
     html += '<div style="font-size:10px;color:#2a3a50;margin-bottom:6px;">'+sig.src+' · '+timeAgo(sig.sent)+'</div>';
 
+    // Debug
+    console.log('[Roads check] event:', sig.event, 'type:', sig.type, 'score:', ev.score, 'hasGeom:', !!sig.geometry);
+
     // Road intersection display
     var cachedRoads = roadCache[sig.id] ? roadCache[sig.id].roads : null;
     if (cachedRoads && cachedRoads.length > 0) {
@@ -1892,6 +1895,7 @@ function renderDetail(regionId) {
       html += '<div style="font-size:10px;color:#4a7858;line-height:1.7;">'+cachedRoads.join(' · ')+'</div>';
       html += '</div>';
     } else if (sig.geometry && (sig.type === 'nws') && ev.score >= 20) {
+      console.log('[Roads] Triggering Overpass for:', sig.event, 'score:', ev.score, 'geometry type:', sig.geometry ? sig.geometry.type : 'none');
       html += '<div id="roads-'+sig.id.replace(/[^a-zA-Z0-9]/g,'-')+'" style="background:#080c10;border-radius:3px;padding:7px 10px;margin-bottom:8px;border-left:2px solid #1a2a20;">';
       html += '<div style="font-size:9px;color:#2a3a30;font-style:italic;">Loading affected corridors…</div>';
       html += '</div>';
