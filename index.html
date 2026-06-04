@@ -1354,8 +1354,6 @@ async function fetchRoadsInPolygon(sig) {
   var cached = roadCache[cacheKey];
   // Cache for 10 minutes
   if (cached && (Date.now() - cached.fetchedAt) < 600000) return cached.roads;
-
-  console.log('[Overpass] Fetching roads for signal:', sig.id, sig.event);
   try {
     // Build polygon string for Overpass from geometry
     var coords = [];
@@ -1380,8 +1378,9 @@ async function fetchRoadsInPolygon(sig) {
     }
     var polyStr = sampled.join(' ');
 
-    // Overpass query — major roads only (motorway, trunk, primary, secondary)
-    var query = '[out:json][timeout:10];(way["highway"~"motorway|trunk|primary|secondary"](poly:"' + polyStr + '"););out tags;';
+    // Overpass query — primary operating corridors only (motorway, trunk, primary)
+    // Secondary and residential roads excluded — autonomous fleet operates on primary network only
+    var query = '[out:json][timeout:10];(way["highway"~"motorway|trunk|primary"](poly:"' + polyStr + '"););out tags;';
     var url = 'https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(query);
 
     var result = await pjson(url);
@@ -1407,10 +1406,8 @@ async function fetchRoadsInPolygon(sig) {
     // Cap at 8 roads
     roads = roads.slice(0, 8);
     roadCache[cacheKey] = { roads: roads, fetchedAt: Date.now() };
-    console.log('[Overpass] Roads found:', roads);
     return roads;
   } catch(e) {
-    console.error('[Overpass] Failed:', e);
     return [];
   }
 }
@@ -1885,17 +1882,23 @@ function renderDetail(regionId) {
     html += '<div style="font-size:10px;color:#2a3a50;margin-bottom:6px;">'+sig.src+' · '+timeAgo(sig.sent)+'</div>';
 
     // Debug
-    console.log('[Roads check] event:', sig.event, 'type:', sig.type, 'score:', ev.score, 'hasGeom:', !!sig.geometry);
 
     // Road intersection display
     var cachedRoads = roadCache[sig.id] ? roadCache[sig.id].roads : null;
-    if (cachedRoads && cachedRoads.length > 0) {
-      html += '<div style="background:#080c10;border-radius:3px;padding:7px 10px;margin-bottom:8px;border-left:2px solid #2a5a3a;">';
-      html += '<div style="font-size:8px;color:#2a5a3a;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">Affected Corridors</div>';
-      html += '<div style="font-size:10px;color:#4a7858;line-height:1.7;">'+cachedRoads.join(' · ')+'</div>';
-      html += '</div>';
+    if (cachedRoads !== null) {
+      if (cachedRoads.length > 0) {
+        html += '<div style="background:#080c10;border-radius:3px;padding:7px 10px;margin-bottom:8px;border-left:2px solid #2a5a3a;">';
+        html += '<div style="font-size:8px;color:#2a5a3a;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">Affected Primary Corridors</div>';
+        html += '<div style="font-size:10px;color:#4a7858;line-height:1.7;">'+cachedRoads.join(' · ')+'</div>';
+        html += '</div>';
+      } else {
+        // Zero major roads — operationally meaningful
+        html += '<div style="background:#080c10;border-radius:3px;padding:7px 10px;margin-bottom:8px;border-left:2px solid #1a3a28;">';
+        html += '<div style="font-size:8px;color:#2a4a30;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">Corridor Assessment</div>';
+        html += '<div style="font-size:10px;color:#3a5a40;line-height:1.6;">No primary operating corridors identified within warning polygon. Warning concentrated in non-primary operating zone. Primary route network appears unaffected at this time.</div>';
+        html += '</div>';
+      }
     } else if (sig.geometry && (sig.type === 'nws') && ev.score >= 20) {
-      console.log('[Roads] Triggering Overpass for:', sig.event, 'score:', ev.score, 'geometry type:', sig.geometry ? sig.geometry.type : 'none');
       html += '<div id="roads-'+sig.id.replace(/[^a-zA-Z0-9]/g,'-')+'" style="background:#080c10;border-radius:3px;padding:7px 10px;margin-bottom:8px;border-left:2px solid #1a2a20;">';
       html += '<div style="font-size:9px;color:#2a3a30;font-style:italic;">Loading affected corridors…</div>';
       html += '</div>';
@@ -1906,10 +1909,12 @@ function renderDetail(regionId) {
           if (!el) return;
           if (roads.length > 0) {
             el.style.borderLeftColor = '#2a5a3a';
-            el.innerHTML = '<div style="font-size:8px;color:#2a5a3a;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">Affected Corridors</div>' +
+            el.innerHTML = '<div style="font-size:8px;color:#2a5a3a;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">Affected Primary Corridors</div>' +
               '<div style="font-size:10px;color:#4a7858;line-height:1.7;">' + roads.join(' · ') + '</div>';
           } else {
-            el.style.display = 'none';
+            el.style.borderLeftColor = '#1a3a28';
+            el.innerHTML = '<div style="font-size:8px;color:#2a4a30;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">Corridor Assessment</div>' +
+              '<div style="font-size:10px;color:#3a5a40;line-height:1.6;">No primary operating corridors identified within warning polygon. Warning concentrated in non-primary operating zone. Primary route network appears unaffected at this time.</div>';
           }
         });
       })(sig, 'roads-'+sig.id.replace(/[^a-zA-Z0-9]/g,'-'));
@@ -2459,7 +2464,7 @@ async function generateSitrep() {
     'Region Status:',
     regionAssessments.length > 0 ? regionAssessments.join(' / ') : 'No region data available yet — please wait for refresh to complete.',
     '',
-    'You are briefing a Waymo autonomous fleet operations director. Write a route-impact operational summary — not a weather report.',
+    'You are briefing a autonomous fleet autonomous fleet operations director. Write a route-impact operational summary — not a weather report.',
     'Frame every condition in terms of AV routing consequences: lane availability, street-level accessibility, avoidance zone need, pickup/dropoff exposure, rerouting requirement.',
     'Use AV-native language: service corridor impact, avoidance zone, route reliability, street-level accessibility, pickup/dropoff exposure, dispatch continuity.',
     '',
@@ -2483,6 +2488,7 @@ async function generateSitrep() {
     'HIGH + corroboration → prepare corridor restrictions, stage capacity.',
     'If most regions are NORMAL say so — that is the system working correctly.',
     'Authoritative events intersecting a region justify action without waiting for corroboration.',
+    'If affected corridors shows "No primary operating corridors identified" — explicitly note this in CONCERN: the warning exists but does not threaten primary operating corridors. This is operationally significant — the system correctly identified a non-threatening condition.',
     'SPC probability data is CONTEXT ONLY — never cite it as justification for posture changes. Use it to add temporal awareness: "SPC indicates elevated tornado probability in the region — if conditions develop, escalation could be rapid." Never say "SPC data confirms" anything.',
     'Interpret SPC probabilities correctly: 2-5% = elevated awareness, 10-15% = notable risk, 30%+ = significant threat. These are probabilities of occurrence within 25 miles of a point, not certainties.'
   ].join('\n');
