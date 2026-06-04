@@ -203,16 +203,18 @@ header {
 .map-btn {
   background: rgba(10,12,18,0.92);
   border: 1px solid #1a2030;
-  color: #2a3a50;
+  color: #8aaac8;
   font-family: 'Inter', sans-serif;
   font-size: 9px;
-  padding: 4px 10px;
+  padding: 4px 8px;
   cursor: pointer;
   border-radius: 3px;
   transition: all 0.15s;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.03em;
   white-space: nowrap;
+  min-width: 52px;
+  text-align: center;
 }
 .map-btn:hover { border-color: #3a5070; color: #6888a8; }
 .map-btn.on { border-color: #5a80a8; color: #8aaac8; background: rgba(42,80,120,0.15); }
@@ -556,6 +558,7 @@ var suppressionBreakdown = { noIntersection:0, advisoryOnly:0, duplicate:0, belo
 var postureHistory = {}; // regionId -> { prev, current, changedAt, reason }
 var postureTimeline = {}; // regionId -> [{ posture, at, reason }]
 var recoveryState = {}; // regionId -> { stabilizingSince, cyclesStable, readyAt }
+var roadCache = {}; // signalId -> { roads: [], fetchedAt }
 
 // ─────────────────────────────────────────────
 // CLOCK
@@ -1343,9 +1346,122 @@ function getAction(sig, regionName, score) {
 }
 
 // ─────────────────────────────────────────────
+// ROAD INTERSECTION via OVERPASS
+// ─────────────────────────────────────────────
+async function fetchRoadsInPolygon(sig) {
+  if (!sig.geometry) return [];
+  var cacheKey = sig.id;
+  var cached = roadCache[cacheKey];
+  // Cache for 10 minutes
+  if (cached && (Date.now() - cached.fetchedAt) < 600000) return cached.roads;
+
+  console.log('[Overpass] Fetching roads for signal:', sig.id, sig.event);
+  try {
+    // Build polygon string for Overpass from geometry
+    var coords = [];
+    var geom = sig.geometry;
+    if (geom.type === 'Polygon') {
+      coords = geom.coordinates[0];
+    } else if (geom.type === 'MultiPolygon') {
+      // Use first polygon ring
+      coords = geom.coordinates[0][0];
+    }
+    if (coords.length === 0) return [];
+
+    // Sample coords to keep query short (max 20 points)
+    var step = Math.max(1, Math.floor(coords.length / 20));
+    var sampled = [];
+    for (var i = 0; i < coords.length; i += step) {
+      sampled.push(coords[i][1] + ' ' + coords[i][0]); // lat lng
+    }
+    // Close the polygon
+    if (sampled[0] !== sampled[sampled.length-1]) {
+      sampled.push(sampled[0]);
+    }
+    var polyStr = sampled.join(' ');
+
+    // Overpass query — major roads only (motorway, trunk, primary, secondary)
+    var query = '[out:json][timeout:10];(way["highway"~"motorway|trunk|primary|secondary"](poly:"' + polyStr + '"););out tags;';
+    var url = 'https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(query);
+
+    var result = await pjson(url);
+    var roads = [];
+    var seen = {};
+    if (result && result.elements) {
+      result.elements.forEach(function(el) {
+        var name = el.tags && (el.tags.name || el.tags.ref);
+        if (name && !seen[name]) {
+          seen[name] = true;
+          roads.push(name);
+        }
+      });
+    }
+    // Sort: refs (I-10, TX-35) first, then named streets
+    roads.sort(function(a, b) {
+      var aIsRef = /^[A-Z]/.test(a);
+      var bIsRef = /^[A-Z]/.test(b);
+      if (aIsRef && !bIsRef) return -1;
+      if (!aIsRef && bIsRef) return 1;
+      return a.localeCompare(b);
+    });
+    // Cap at 8 roads
+    roads = roads.slice(0, 8);
+    roadCache[cacheKey] = { roads: roads, fetchedAt: Date.now() };
+    console.log('[Overpass] Roads found:', roads);
+    return roads;
+  } catch(e) {
+    console.error('[Overpass] Failed:', e);
+    return [];
+  }
+}
+
+// ─────────────────────────────────────────────
 // POSTURE ORDERING + COLOR
 // ─────────────────────────────────────────────
 var POSTURE_ORDER = ['suspend','restrict','watch','monitor','normal'];
+
+// ── ROUTE IMPACT CLASSIFICATION ──
+function getRouteImpact(signals) {
+  if (!signals || signals.length === 0) return null;
+  var topEvent = signals[0] ? (signals[0].sig.event || '') : '';
+  var topScore = signals[0] ? signals[0].score : 0;
+
+  // Classify by event type and score
+  if (topEvent.indexOf('Tornado Warning') >= 0 || topEvent.indexOf('Flash Flood Emergency') >= 0) {
+    return { scope: 'Area Closure', detail: 'Multiple corridors likely impassable. Full service-area avoidance recommended.', color: '#a01828', icon: '⛔' };
+  }
+  if (topEvent.indexOf('Evacuation') >= 0) {
+    return { scope: 'Area Closure', detail: 'Evacuation order in effect. Service area operationally excluded.', color: '#a01828', icon: '⛔' };
+  }
+  if (topEvent.indexOf('Hurricane') >= 0) {
+    return { scope: 'Area Closure', detail: 'Hurricane conditions. Full regional avoidance required.', color: '#a01828', icon: '⛔' };
+  }
+  if (topEvent.indexOf('Flash Flood Warning') >= 0 && topScore >= 75) {
+    return { scope: 'Full-Street Impact', detail: 'Active flooding likely affecting street-level routing. Low-lying corridor avoidance recommended.', color: '#a04818', icon: '🚧' };
+  }
+  if (topEvent.indexOf('Flash Flood Warning') >= 0) {
+    return { scope: 'Partial-Street Impact', detail: 'Flood risk in low-elevation corridors. Routing review recommended for affected zones.', color: '#a07820', icon: '⚠️' };
+  }
+  if (topEvent.indexOf('Flood Warning') >= 0) {
+    return { scope: 'Partial-Street Impact', detail: 'Active flooding may affect low-lying streets. Monitor corridor routing for disruption.', color: '#a07820', icon: '⚠️' };
+  }
+  if (topEvent.indexOf('Gauge Above Flood Stage') >= 0) {
+    return { scope: 'Corridor Monitoring', detail: 'Elevated water levels near operating corridors. No confirmed street impact — monitor for escalation.', color: '#5555aa', icon: '👁' };
+  }
+  if (topEvent.indexOf('Severe Thunderstorm Warning') >= 0) {
+    return { scope: 'Temporary Exposure', detail: 'Severe cell passing through operating area. 20–40 min elevated exposure window. No permanent avoidance needed.', color: '#a07820', icon: '⚡' };
+  }
+  if (topEvent.indexOf('Tornado Watch') >= 0) {
+    return { scope: 'Readiness Only', detail: 'Conditions favorable for tornado development. No routing change yet — prepare rapid-response avoidance protocol.', color: '#5555aa', icon: '👁' };
+  }
+  if (topEvent.indexOf('Red Flag Warning') >= 0) {
+    return { scope: 'Corridor Monitoring', detail: 'Fire weather conditions. Monitor for active ignition near operating corridors. No routing change until fire confirmed.', color: '#a07820', icon: '🔥' };
+  }
+  if (topScore >= 45) {
+    return { scope: 'Partial-Street Impact', detail: 'Environmental conditions may affect street-level routing. Corridor review recommended.', color: '#a07820', icon: '⚠️' };
+  }
+  return { scope: 'Monitoring Only', detail: 'Conditions developing. No routing impact confirmed at current evidence level.', color: '#5555aa', icon: '👁' };
+}
 
 function postureColor(p) {
   var map = {
@@ -1398,6 +1514,11 @@ function renderRegionList() {
       changeNote = (esc2?'↑ ':'↓ ') + hist.prev.toUpperCase() + ' → ' + hist.current.toUpperCase() + ' · ' + (elapsed2<1?'just now':elapsed2+'m ago');
     }
     var subText = changeNote || (n > 0 ? (n + ' signal' + (n > 1 ? 's' : '') + ' contributing') : 'No relevant signals');
+    // Show route impact scope on degraded regions
+    if (rd.posture !== 'normal' && rd.signals.length > 0) {
+      var imp = getRouteImpact(rd.signals);
+      if (imp) subText = imp.icon + ' ' + imp.scope;
+    }
     // Elevated awareness override for normal regions
     if (rd.posture === 'normal' && rd.elevatedAwareness && rd.elevatedAwareness.length > 0) {
       var threatNames = rd.elevatedAwareness.map(function(t){ return t.prob + '% ' + t.type; }).join(' · ');
@@ -1650,6 +1771,18 @@ function renderDetail(regionId) {
     // Operational concern header
     html += '<div style="font-size:9px;color:#4a6070;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;font-weight:600">Operational Assessment</div>';
 
+    // Route impact block
+    var impact = getRouteImpact(rd.signals);
+    if (impact) {
+      html += '<div style="background:#08090e;border-radius:3px;padding:8px 10px;margin-bottom:10px;border-left:3px solid '+impact.color+';">';
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;">';
+      html += '<span style="font-size:11px;">'+impact.icon+'</span>';
+      html += '<span style="font-size:11px;font-weight:700;color:'+impact.color+'">'+impact.scope+'</span>';
+      html += '</div>';
+      html += '<div style="font-size:10px;color:#6a8070;line-height:1.6;">'+impact.detail+'</div>';
+      html += '</div>';
+    }
+
     // Rationale first — the WHY
     html += '<div style="font-size:11px;color:#a8b8c8;line-height:1.7;margin-bottom:12px;">'+a.rationale+'</div>';
 
@@ -1749,7 +1882,34 @@ function renderDetail(regionId) {
     html += '<div style="font-size:13px;font-weight:600;color:#c8d8e8;">'+sig.event+'</div>';
     html += '</div>';
     if (sig.area) html += '<div style="font-size:11px;color:#4a6070;margin-bottom:4px;line-height:1.5;">'+sig.area.slice(0,100)+(sig.area.length>100?'…':'')+'</div>';
-    html += '<div style="font-size:10px;color:#2a3a50;margin-bottom:10px;">'+sig.src+' · '+timeAgo(sig.sent)+'</div>';
+    html += '<div style="font-size:10px;color:#2a3a50;margin-bottom:6px;">'+sig.src+' · '+timeAgo(sig.sent)+'</div>';
+
+    // Road intersection display
+    var cachedRoads = roadCache[sig.id] ? roadCache[sig.id].roads : null;
+    if (cachedRoads && cachedRoads.length > 0) {
+      html += '<div style="background:#080c10;border-radius:3px;padding:7px 10px;margin-bottom:8px;border-left:2px solid #2a5a3a;">';
+      html += '<div style="font-size:8px;color:#2a5a3a;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">Affected Corridors</div>';
+      html += '<div style="font-size:10px;color:#4a7858;line-height:1.7;">'+cachedRoads.join(' · ')+'</div>';
+      html += '</div>';
+    } else if (sig.geometry && (sig.type === 'nws') && ev.score >= 30) {
+      html += '<div id="roads-'+sig.id.replace(/[^a-zA-Z0-9]/g,'-')+'" style="background:#080c10;border-radius:3px;padding:7px 10px;margin-bottom:8px;border-left:2px solid #1a2a20;">';
+      html += '<div style="font-size:9px;color:#2a3a30;font-style:italic;">Loading affected corridors…</div>';
+      html += '</div>';
+      // Async fetch roads
+      (function(sigRef, divId) {
+        fetchRoadsInPolygon(sigRef).then(function(roads) {
+          var el = document.getElementById(divId);
+          if (!el) return;
+          if (roads.length > 0) {
+            el.style.borderLeftColor = '#2a5a3a';
+            el.innerHTML = '<div style="font-size:8px;color:#2a5a3a;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">Affected Corridors</div>' +
+              '<div style="font-size:10px;color:#4a7858;line-height:1.7;">' + roads.join(' · ') + '</div>';
+          } else {
+            el.style.display = 'none';
+          }
+        });
+      })(sig, 'roads-'+sig.id.replace(/[^a-zA-Z0-9]/g,'-'));
+    }
 
     // Contributing Evidence — plain language
     var evFactors = ev.lineage.filter(function(l){ return !l.final; });
@@ -1760,7 +1920,7 @@ function renderDetail(regionId) {
         var dot = l.val < 0 ? '○' : '●';
         var dotColor = l.val < 0 ? '#5a3030' : l.color === '#3a5888' ? '#3a6888' : l.color === '#6a5818' ? '#6a6030' : l.color === '#1e6e48' ? '#1e6e48' : '#4a6070';
         var stmt = '';
-        if (l.type === 'base') stmt = 'Authoritative signal active — ' + sig.src;
+        if (l.type === 'base') stmt = (sig.src || 'NWS') + ': ' + sig.event + ' — authoritative signal active';
         else if (l.type === 'zone' && l.lbl.indexOf('Intersects') >= 0) stmt = 'Confirmed intersection with operating region';
         else if (l.type === 'zone') stmt = 'Signal within operational proximity of region';
         else if (l.type === 'corr') stmt = 'Independent physical corroboration — ' + l.lbl;
@@ -1859,6 +2019,13 @@ function renderMap() {
         opacity: rd.posture === 'normal' ? 0.35 : 0.6,
         dashArray: rd.posture === 'normal' ? '8,6' : null
       }).addTo(leafMap);
+      poly.bindPopup(
+        '<div style="font-family:Inter,sans-serif;padding:2px;">' +
+        '<div style="font-size:11px;font-weight:700;color:' + color + ';margin-bottom:3px;">' + region.id + ' — ' + region.name + '</div>' +
+        '<div style="font-size:10px;color:#4a6070;">Posture: <b style="color:' + color + '">' + rd.posture.toUpperCase() + '</b></div>' +
+        (rd.score > 0 ? '<div style="font-size:9px;color:#3a5070;margin-top:2px;">Justification score: ' + rd.score + '</div>' : '') +
+        '</div>'
+      );
       poly.on('click', function() { selectRegion(region.id); });
 
       var icon = L.divIcon({
@@ -1885,21 +2052,34 @@ function renderMap() {
         var geom = sig.geometry;
         if (geom && (geom.type === 'Polygon' || geom.type === 'MultiPolygon')) {
           try {
-            var layer = L.geoJSON({ type:'Feature', geometry: geom }, {
-              style: function() {
-                // Color by event type
-                var ev = sig.event || '';
-                var c2 = ev.indexOf('Tornado')>=0 ? '#ff2020' :
-                         ev.indexOf('Flash Flood')>=0 ? '#aa2090' :
-                         ev.indexOf('Flood')>=0 ? '#4488ff' :
-                         ev.indexOf('Thunderstorm')>=0 ? '#ffaa00' :
+            var ev2 = sig.event || '';
+            var hColor = ev2.indexOf('Tornado')>=0 ? '#ff2020' :
+                         ev2.indexOf('Flash Flood Emergency')>=0 ? '#ff00ff' :
+                         ev2.indexOf('Flash Flood')>=0 ? '#cc00cc' :
+                         ev2.indexOf('Flood')>=0 ? '#4488ff' :
+                         ev2.indexOf('Thunderstorm')>=0 ? '#ffaa00' :
+                         ev2.indexOf('Hurricane')>=0 ? '#ff4400' :
+                         ev2.indexOf('Fire')>=0 || ev2.indexOf('Red Flag')>=0 ? '#ff6600' :
                          color;
-                return { color:c2, weight:2, fillColor:c2, fillOpacity:0.12, opacity:0.75 };
-              }
-            }).addTo(leafMap);
-            layer.bindPopup('<b style="color:'+color+'">'+sig.event+'</b><br><span style="font-size:10px;color:#4a6070">'+(sig.area||'').slice(0,60)+'</span>');
-            layer.on('click', function() { selectRegion(region.id); });
-            mapLayers.hazards.push(layer);
+            var sigArea = (sig.area||'').slice(0,80);
+            var sigSrc = sig.src || 'NWS';
+            var sigTime = timeAgo(sig.sent);
+            (function(hc, se, sa, ss, st) {
+              var layer = L.geoJSON({ type:'Feature', geometry: geom }, {
+                style: function() {
+                  return { color:hc, weight:2.5, fillColor:hc, fillOpacity:0.15, opacity:0.85 };
+                }
+              }).addTo(leafMap);
+              layer.bindPopup(
+                '<div style="font-family:Inter,sans-serif;min-width:180px;">' +
+                '<div style="font-size:12px;font-weight:700;color:'+hc+';margin-bottom:4px;">'+se+'</div>' +
+                '<div style="font-size:10px;color:#4a6070;margin-bottom:3px;">'+sa+'</div>' +
+                '<div style="font-size:9px;color:#3a5070;">'+ss+' · '+st+'</div>' +
+                '</div>'
+              );
+              layer.on('click', function() { selectRegion(region.id); });
+              mapLayers.hazards.push(layer);
+            })(hColor, ev2, sigArea, sigSrc, sigTime);
           } catch(e) {}
         } else if (sig.lat != null && sig.lng != null) {
           var m = L.circleMarker([sig.lat, sig.lng], {
@@ -2242,6 +2422,13 @@ async function generateSitrep() {
     var sigNames = rd.signals.slice(0,3).map(function(s){ return s.sig.event; }).join('; ');
     var line = r.name + ': ' + rd.posture.toUpperCase() + ' (score ' + rd.score + ') | ' + sigNames;
     if (a) { line += ' | Confidence: '+a.confidence+' | '+a.validation+' | '+a.rationale; }
+    // Include road data if cached
+    rd.signals.forEach(function(ev) {
+      var roads = roadCache[ev.sig.id] ? roadCache[ev.sig.id].roads : null;
+      if (roads && roads.length > 0) {
+        line += ' | Affected corridors: ' + roads.join(', ');
+      }
+    });
     regionAssessments.push(line);
   });
   var prompt = [
@@ -2268,14 +2455,16 @@ async function generateSitrep() {
     'Region Status:',
     regionAssessments.length > 0 ? regionAssessments.join(' / ') : 'No region data available yet — please wait for refresh to complete.',
     '',
-    'You are briefing a Waymo fleet operations director. Write a current fleet operational status summary — not a weather report.',
+    'You are briefing a Waymo autonomous fleet operations director. Write a route-impact operational summary — not a weather report.',
+    'Frame every condition in terms of AV routing consequences: lane availability, street-level accessibility, avoidance zone need, pickup/dropoff exposure, rerouting requirement.',
+    'Use AV-native language: service corridor impact, avoidance zone, route reliability, street-level accessibility, pickup/dropoff exposure, dispatch continuity.',
     '',
     'Structure your response exactly as follows (no headers, flowing prose):',
     'Format your response as exactly four short labeled lines, each under 25 words:',
-    'STATUS: [one sentence on which regions are degraded and current posture]',
-    'CONCERN: [one sentence on primary operational risk to fleet ops in next 60 min]',
-    'CONFIDENCE: [one sentence — environmental vs operational confidence, telemetry status]',
-    'ACTION: [one clear directive for the next 30 minutes]',
+    'STATUS: [which regions are degraded and at what posture]',
+    'CONCERN: [route/corridor impact — what street-level access is at risk and where]',
+    'CONFIDENCE: [environmental authority vs confirmed street impact — what telemetry would confirm]',
+    'ACTION: [one clear AV-operational directive — routing review, avoidance zone prep, or no change]',
     '',
     'Each line must start with the label in caps followed by a colon.',
     'Be direct. Be brief. No filler. No weather description.',
