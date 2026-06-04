@@ -1891,7 +1891,7 @@ function renderDetail(regionId) {
       html += '<div style="font-size:8px;color:#2a5a3a;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">Affected Corridors</div>';
       html += '<div style="font-size:10px;color:#4a7858;line-height:1.7;">'+cachedRoads.join(' · ')+'</div>';
       html += '</div>';
-    } else if (sig.geometry && (sig.type === 'nws') && ev.score >= 30) {
+    } else if (sig.geometry && (sig.type === 'nws') && ev.score >= 20) {
       html += '<div id="roads-'+sig.id.replace(/[^a-zA-Z0-9]/g,'-')+'" style="background:#080c10;border-radius:3px;padding:7px 10px;margin-bottom:8px;border-left:2px solid #1a2a20;">';
       html += '<div style="font-size:9px;color:#2a3a30;font-style:italic;">Loading affected corridors…</div>';
       html += '</div>';
