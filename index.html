@@ -249,7 +249,7 @@ header {
 /* DATA VALIDATION PANEL */
 .val-panel {
   position: absolute;
-  bottom: 130px;
+  bottom: 88px;
   left: 14px;
   z-index: 1000;
   background: rgba(10,12,18,0.96);
@@ -297,7 +297,7 @@ header {
   position: absolute;
   bottom: 14px;
   right: 14px;
-  z-index: 1000;
+  z-index: 999;
   background: rgba(10,12,18,0.92);
   border: 1px solid #1a2030;
   border-radius: 4px;
@@ -363,6 +363,7 @@ html, body { overflow: auto !important; }
     <div id="sitrep-body" style="padding:14px 18px;font-size:12px;color:#c8d8e8;line-height:1.8;min-height:88px;overflow-y:auto;font-weight:400;">
       Generating operational briefing…
     </div>
+    <div id="posture-ledger"></div>
   </div>
 
   <!-- RESIZE: sitrep ↕ region list -->
@@ -393,16 +394,16 @@ html, body { overflow: auto !important; }
   <div class="map-controls">
     <button class="map-btn on" id="btn-regions" onclick="toggleMap('regions')">Regions</button>
     <button class="map-btn on" id="btn-hazards" onclick="toggleMap('hazards')">Hazards</button>
-    <button class="map-btn on" id="btn-firewx" onclick="toggleMap('firewx')">Fire Wx</button>
-    <button class="map-btn on" id="btn-spc" onclick="toggleMap('spc')">SPC Cat</button>
+    <button class="map-btn" id="btn-firewx" onclick="toggleMap('firewx')">Fire Wx</button>
+    <button class="map-btn" id="btn-spc" onclick="toggleMap('spc')">SPC Cat</button>
     <button class="map-btn" id="btn-torn" onclick="toggleMap('torn')">Tornado %</button>
     <button class="map-btn" id="btn-hail" onclick="toggleMap('hail')">Hail %</button>
     <button class="map-btn" id="btn-wind" onclick="toggleMap('wind')">Wind %</button>
-    <button class="map-btn on" id="btn-gauges" onclick="toggleMap('gauges')">Gauges</button>
+    <button class="map-btn" id="btn-gauges" onclick="toggleMap('gauges')">Gauges</button>
     <button class="map-btn" id="btn-radar" onclick="toggleMap('radar')">Radar</button>
   </div>
     <!-- DATA VALIDATION TOGGLE -->
-  <button onclick="toggleMethodology()" id="method-btn" style="position:absolute;bottom:128px;left:14px;z-index:1001;background:rgba(10,12,18,0.92);border:1px solid #1a2030;color:#6888a8;font-family:Inter,sans-serif;font-size:9px;padding:4px 10px;cursor:pointer;border-radius:3px;text-transform:uppercase;letter-spacing:0.05em;transition:all 0.15s">How It Works</button>
+  <button onclick="toggleMethodology()" id="method-btn" style="position:absolute;bottom:52px;left:14px;z-index:1001;background:rgba(10,12,18,0.92);border:1px solid #1a2030;color:#6888a8;font-family:Inter,sans-serif;font-size:9px;padding:4px 10px;cursor:pointer;border-radius:3px;text-transform:uppercase;letter-spacing:0.05em;transition:all 0.15s">How It Works</button>
   <div id="method-panel" style="display:none;position:absolute;bottom:166px;left:14px;z-index:1002;background:rgba(8,9,14,0.97);border:1px solid #1a2030;border-radius:4px;padding:14px 16px;width:320px;max-height:400px;overflow-y:auto;font-size:10px;color:#6888a8;line-height:1.7;">
     <div style="font-size:9px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#a0b8d0;margin-bottom:12px;border-bottom:1px solid #1a2030;padding-bottom:8px;">Detection Methodology</div>
 
@@ -439,15 +440,29 @@ html, body { overflow: auto !important; }
     <div style="color:#a0b8d0;font-weight:600;margin-bottom:4px;font-size:10px;">Telemetry Layer</div>
     <div style="color:#6888a8;">This prototype uses public environmental signals only. In production, fleet telemetry — reroute frequency, speed degradation, remote assistance volume, perception health, hard braking clusters — would serve as the major corroboration source, increasing score confidence and reducing false positives.</div>
   </div>
-  <button onclick="toggleValidation()" id="val-btn" style="position:absolute;bottom:90px;left:14px;z-index:1001;background:rgba(10,12,18,0.92);border:1px solid #1a2030;color:#6888a8;font-family:Inter,sans-serif;font-size:9px;padding:4px 10px;cursor:pointer;border-radius:3px;text-transform:uppercase;letter-spacing:0.05em;transition:all 0.15s" onmouseover="this.style.borderColor='#5a80a8';this.style.color='#8aaac8'" onmouseout="this.style.borderColor='#1a2030';this.style.color='#6888a8'">Validate Data</button>
+  <button onclick="toggleValidation()" id="val-btn" style="position:absolute;bottom:14px;left:14px;z-index:1001;background:rgba(10,12,18,0.92);border:1px solid #1a2030;color:#6888a8;font-family:Inter,sans-serif;font-size:9px;padding:4px 10px;cursor:pointer;border-radius:3px;text-transform:uppercase;letter-spacing:0.05em;transition:all 0.15s" onmouseover="this.style.borderColor='#5a80a8';this.style.color='#8aaac8'" onmouseout="this.style.borderColor='#1a2030';this.style.color='#6888a8'">Validate Data</button>
   <div class="val-panel" id="val-panel">
     <div class="val-title">Live Data Sources — Last Refresh</div>
     <div id="val-body">Loading…</div>
   </div>
 
-  <div class="proto-note">
-    <strong style="color:#a0b8d0">Prototype</strong> — Demonstrates operational posture assessment using live public environmental signals. In production, fleet telemetry and dispatch systems would provide additional corroboration and operational validation.
+  <!-- MAP LEGEND -->
+  <div id="map-legend" style="position:absolute;bottom:60px;right:14px;z-index:998;background:rgba(8,9,14,0.96);border:1px solid #2a3a50;border-radius:4px;padding:10px 14px;font-size:10px;color:#8aaac8;min-width:190px;">
+    <div style="font-size:9px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#a0b8d0;margin-bottom:8px;border-bottom:1px solid #1a2030;padding-bottom:5px;">Hazard Layer Legend</div>
+    <div style="display:flex;flex-direction:column;gap:5px;">
+      <div style="display:flex;align-items:center;gap:8px;"><div style="width:16px;height:10px;background:#cc00cc;opacity:0.7;border-radius:2px;flex-shrink:0;border:1px solid #cc00cc;"></div><span>Flash Flood Warning</span></div>
+      <div style="display:flex;align-items:center;gap:8px;"><div style="width:16px;height:10px;background:#2277ee;opacity:0.7;border-radius:2px;flex-shrink:0;border:1px solid #2277ee;"></div><span>Flood Warning</span></div>
+      <div style="display:flex;align-items:center;gap:8px;"><div style="width:16px;height:10px;background:#7744bb;opacity:0.7;border-radius:2px;flex-shrink:0;border:1px solid #7744bb;"></div><span>Flood Advisory</span></div>
+      <div style="display:flex;align-items:center;gap:8px;"><div style="width:16px;height:10px;background:#ff2020;opacity:0.7;border-radius:2px;flex-shrink:0;border:1px solid #ff2020;"></div><span>Tornado Warning</span></div>
+      <div style="display:flex;align-items:center;gap:8px;"><div style="width:16px;height:10px;background:#ffaa00;opacity:0.7;border-radius:2px;flex-shrink:0;border:1px solid #ffaa00;"></div><span>Severe Thunderstorm Warning</span></div>
+      <div style="display:flex;align-items:center;gap:8px;"><div style="width:16px;height:10px;background:#ff6600;opacity:0.7;border-radius:2px;flex-shrink:0;border:1px solid #ff6600;"></div><span>Fire / Red Flag Warning</span></div>
+      <div style="display:flex;align-items:center;gap:8px;"><div style="width:16px;height:10px;background:#aa2828;opacity:0.7;border-radius:2px;flex-shrink:0;border:1px solid #aa2828;"></div><span>Fire Weather Watch</span></div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:3px;padding-top:5px;border-top:1px solid #1a2030;"><div style="width:16px;height:2px;border-top:2px dashed #888820;flex-shrink:0;margin-top:4px;"></div><span style="color:#6a7a50;">SPC Categorical Outlook</span></div>
+      <div style="display:flex;align-items:center;gap:8px;"><div style="width:16px;height:2px;border-top:2px solid #3a5070;flex-shrink:0;margin-top:4px;opacity:0.6;"></div><span style="color:#3a5070;">Service Region Boundary</span></div>
+    </div>
   </div>
+
+
 </div>
 
 
@@ -548,7 +563,7 @@ var gaugeData   = {};
 var regionData  = {};   // id → { posture, score, signals[], suppressed }
 var eventStore  = {};   // signalId:regionId → { cycles }
 var selectedId  = null;
-var mapVis      = { regions:true, hazards:true, firewx:true, spc:true, gauges:true, radar:false, torn:false, hail:false, wind:false };
+var mapVis      = { regions:true, hazards:true, firewx:false, spc:false, gauges:false, radar:false, torn:false, hail:false, wind:false };
 var mapLayers   = { regions:[], hazards:[], firewx:[], spc:[], gauges:[], torn:[], hail:[], wind:[] };
 var radarLayers = [], radarTimer = null, radarIdx = 0;
 var leafMap     = null;
@@ -558,6 +573,7 @@ var suppressionBreakdown = { noIntersection:0, advisoryOnly:0, duplicate:0, belo
 var postureHistory = {}; // regionId -> { prev, current, changedAt, reason }
 var postureTimeline = {}; // regionId -> [{ posture, at, reason }]
 var recoveryState = {}; // regionId -> { stabilizingSince, cyclesStable, readyAt }
+// spcCatLevel and spcCatColor are set per-region in runDetection
 var roadCache = {}; // signalId -> { roads: [], fetchedAt }
 
 // ─────────────────────────────────────────────
@@ -588,6 +604,33 @@ function setMsg(m) {
 // ─────────────────────────────────────────────
 // GEOMETRY
 // ─────────────────────────────────────────────
+function pointInPolygon(lat, lng, ring) {
+  var inside = false;
+  for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    var rLng = ring[i][0], rLat = ring[i][1];
+    var rLng2 = ring[j][0], rLat2 = ring[j][1];
+    if (((rLat > lat) !== (rLat2 > lat)) &&
+        (lng < (rLng2 - rLng) * (lat - rLat) / (rLat2 - rLat) + rLng)) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function pointInGeometry(lat, lng, geometry) {
+  if (!geometry) return false;
+  try {
+    if (geometry.type === 'Polygon') {
+      return pointInPolygon(lat, lng, geometry.coordinates[0]);
+    } else if (geometry.type === 'MultiPolygon') {
+      for (var i = 0; i < geometry.coordinates.length; i++) {
+        if (pointInPolygon(lat, lng, geometry.coordinates[i][0])) return true;
+      }
+    }
+  } catch(e) {}
+  return false;
+}
+
 function pointInRegion(lat, lng, region) {
   var b = region.bounds;
   return lat >= b.minLat && lat <= b.maxLat && lng >= b.minLng && lng <= b.maxLng;
@@ -1126,13 +1169,38 @@ function runDetection() {
           }
         });
       });
-      if (awarenessThreats.length > 0) {
-        // Dedupe by type, keep highest prob
+      // Also check SPC categorical risk level for this region
+      var spcCatLevel = null;
+      var spcCatColor = null;
+      if (allSignals) {
+        allSignals.forEach(function(sig) {
+          if (sig.type !== 'spc') return;
+          if (!sig.geometry) return;
+          // Point-in-polygon test — check center and all 4 corners of region
+          var catHit = pointInGeometry(r.lat, r.lng, sig.geometry) ||
+                       pointInGeometry(r.bounds.minLat, r.bounds.minLng, sig.geometry) ||
+                       pointInGeometry(r.bounds.maxLat, r.bounds.maxLng, sig.geometry) ||
+                       pointInGeometry(r.bounds.minLat, r.bounds.maxLng, sig.geometry) ||
+                       pointInGeometry(r.bounds.maxLat, r.bounds.minLng, sig.geometry);
+          if (catHit) {
+            var label = sig.event || '';
+            var dn = sig.dn || 2;
+            if (!spcCatLevel || dn > (spcCatLevel.dn||0)) {
+              spcCatLevel = { label: label, dn: dn };
+              spcCatColor = dn >= 5 ? '#ff2020' : dn >= 4 ? '#ff6600' : dn >= 3 ? '#ffaa00' : dn >= 2 ? '#888820' : '#3a5a30';
+            }
+          }
+        });
+      }
+
+      if (awarenessThreats.length > 0 || spcCatLevel) {
         var byType = {};
         awarenessThreats.forEach(function(t) {
           if (!byType[t.type] || t.prob > byType[t.type].prob) byType[t.type] = t;
         });
         rd.elevatedAwareness = Object.values(byType);
+        rd.spcCatLevel = spcCatLevel;
+        rd.spcCatColor = spcCatColor;
       }
     }
 
@@ -1482,6 +1550,47 @@ function timeAgo(ts) {
 // ─────────────────────────────────────────────
 // RENDER REGIONS
 // ─────────────────────────────────────────────
+function renderLedger() {
+  var el = document.getElementById('posture-ledger');
+  if (!el) return;
+  // Count total posture changes this session
+  var totalChanges = 0;
+  Object.keys(postureTimeline).forEach(function(rid) {
+    if (postureTimeline[rid]) totalChanges += Math.max(0, postureTimeline[rid].length - 1);
+  });
+  // Active degraded regions
+  var active = REGIONS.filter(function(r) {
+    return regionData[r.id] && regionData[r.id].posture !== 'normal';
+  }).length;
+  // Auto-recovered (regions that improved and have recovery state)
+  var recovered = 0;
+  Object.keys(recoveryState).forEach(function(rid) {
+    if (recoveryState[rid] && recoveryState[rid].cyclesStable > 0) recovered++;
+  });
+  // Suppression rate
+  var supRate = stats.raw > 0 ? Math.round((stats.sup / stats.raw) * 100) : 0;
+
+  el.innerHTML =
+    '<div style="display:flex;gap:0;border-top:1px solid #151d2a;">' +
+    '<div style="flex:1;padding:7px 10px;border-right:1px solid #151d2a;text-align:center;">' +
+      '<div style="font-size:15px;font-weight:700;color:#8aaac8;font-variant-numeric:tabular-nums;">' + totalChanges + '</div>' +
+      '<div style="font-size:8px;color:#3a5070;text-transform:uppercase;letter-spacing:0.05em;margin-top:1px;">Changes</div>' +
+    '</div>' +
+    '<div style="flex:1;padding:7px 10px;border-right:1px solid #151d2a;text-align:center;">' +
+      '<div style="font-size:15px;font-weight:700;color:' + (active>0?'#a07820':'#1e6e48') + ';font-variant-numeric:tabular-nums;">' + active + '</div>' +
+      '<div style="font-size:8px;color:#3a5070;text-transform:uppercase;letter-spacing:0.05em;margin-top:1px;">Active</div>' +
+    '</div>' +
+    '<div style="flex:1;padding:7px 10px;border-right:1px solid #151d2a;text-align:center;">' +
+      '<div style="font-size:15px;font-weight:700;color:#4a7858;font-variant-numeric:tabular-nums;">' + recovered + '</div>' +
+      '<div style="font-size:8px;color:#3a5070;text-transform:uppercase;letter-spacing:0.05em;margin-top:1px;">Recovered</div>' +
+    '</div>' +
+    '<div style="flex:1;padding:7px 10px;text-align:center;">' +
+      '<div style="font-size:15px;font-weight:700;color:#5a7088;font-variant-numeric:tabular-nums;">' + supRate + '%</div>' +
+      '<div style="font-size:8px;color:#3a5070;text-transform:uppercase;letter-spacing:0.05em;margin-top:1px;">Suppressed</div>' +
+    '</div>' +
+    '</div>';
+}
+
 function renderRegionList() {
   var sorted = REGIONS.slice().sort(function(a, b) {
     var pa = regionData[a.id] ? regionData[a.id].posture : 'normal';
@@ -1517,9 +1626,13 @@ function renderRegionList() {
       if (imp) subText = imp.icon + ' ' + imp.scope;
     }
     // Elevated awareness override for normal regions
-    if (rd.posture === 'normal' && rd.elevatedAwareness && rd.elevatedAwareness.length > 0) {
-      var threatNames = rd.elevatedAwareness.map(function(t){ return t.prob + '% ' + t.type; }).join(' · ');
-      subText = 'Elevated Awareness — SPC: ' + threatNames;
+    if (rd.posture === 'normal' && (rd.elevatedAwareness && rd.elevatedAwareness.length > 0 || rd.spcCatLevel)) {
+      var parts = [];
+      if (rd.spcCatLevel) parts.push(rd.spcCatLevel.label);
+      if (rd.elevatedAwareness && rd.elevatedAwareness.length > 0) {
+        parts.push(rd.elevatedAwareness.map(function(t){ return t.prob + '% ' + t.type; }).join(' · '));
+      }
+      subText = 'SPC: ' + parts.join(' + ');
     }
     var scoreText = rd.score > 0 ? ('score ' + rd.score) : '';
     var isActive = selectedId === region.id ? ' active' : '';
@@ -1536,8 +1649,10 @@ function renderRegionList() {
     if (rd.assessment) {
       var cc = rd.assessment.confidence==='HIGH'?'#1a8a5a':rd.assessment.confidence==='MODERATE'?'#a07820':'#5555aa';
       html += '<div style="font-size:8px;color:'+cc+';font-weight:600;margin-top:3px;text-align:right;letter-spacing:0.05em">'+rd.assessment.confidence+'</div>';
-    } else if (rd.elevatedAwareness && rd.elevatedAwareness.length > 0) {
-      html += '<div style="font-size:8px;color:#a07820;font-weight:600;margin-top:3px;text-align:right;letter-spacing:0.05em">AWARENESS</div>';
+    } else if (rd.elevatedAwareness && rd.elevatedAwareness.length > 0 || rd.spcCatLevel) {
+      var badgeColor = rd.spcCatColor || '#a07820';
+      var badgeLabel = rd.spcCatLevel && rd.spcCatLevel.dn >= 3 ? 'MARGINAL' : 'AWARENESS';
+      html += '<div style="font-size:8px;color:'+badgeColor+';font-weight:600;margin-top:3px;text-align:right;letter-spacing:0.05em">'+badgeLabel+'</div>';
     } else if (rd.posture === 'normal') {
       html += '<div style="font-size:8px;color:#2a3a50;margin-top:3px;text-align:right;">—</div>';
     }
@@ -1546,6 +1661,9 @@ function renderRegionList() {
   });
 
   document.getElementById('region-list').innerHTML = html;
+
+  // ── POSTURE LEDGER ──
+  renderLedger();
 
   // Update header status
   var degraded = REGIONS.filter(function(r) {
@@ -2052,48 +2170,60 @@ function renderMap() {
   // Hazard polygons
   clearMapLayers('hazards');
   if (mapVis.hazards) {
+    var seenHazIds = {};
     REGIONS.forEach(function(region) {
       var rd = regionData[region.id] || {};
-      var color = postureColor(rd.posture || 'normal');
       (rd.signals || []).forEach(function(ev) {
         var sig = ev.sig;
         if (sig.type === 'fire_wx' || sig.type === 'spc') return;
+        if (seenHazIds[sig.id]) return;
+        seenHazIds[sig.id] = true;
         var geom = sig.geometry;
         if (geom && (geom.type === 'Polygon' || geom.type === 'MultiPolygon')) {
           try {
             var ev2 = sig.event || '';
-            var hColor = ev2.indexOf('Tornado')>=0 ? '#ff2020' :
-                         ev2.indexOf('Flash Flood Emergency')>=0 ? '#ff00ff' :
-                         ev2.indexOf('Flash Flood')>=0 ? '#cc00cc' :
-                         ev2.indexOf('Flood')>=0 ? '#4488ff' :
-                         ev2.indexOf('Thunderstorm')>=0 ? '#ffaa00' :
-                         ev2.indexOf('Hurricane')>=0 ? '#ff4400' :
-                         ev2.indexOf('Fire')>=0 || ev2.indexOf('Red Flag')>=0 ? '#ff6600' :
-                         color;
-            var sigArea = (sig.area||'').slice(0,80);
-            var sigSrc = sig.src || 'NWS';
-            var sigTime = timeAgo(sig.sent);
-            (function(hc, se, sa, ss, st) {
-              var layer = L.geoJSON({ type:'Feature', geometry: geom }, {
-                style: function() {
-                  return { color:hc, weight:2.5, fillColor:hc, fillOpacity:0.15, opacity:0.85 };
+            var hc = ev2.indexOf('Tornado Warning') >= 0   ? '#ff2020' :
+                     ev2.indexOf('Flash Flood Emergency') >= 0 ? '#ff00ff' :
+                     ev2.indexOf('Flash Flood') >= 0       ? '#cc00cc' :
+                     ev2.indexOf('Flood Advisory') >= 0    ? '#7744bb' :
+                     ev2.indexOf('Flood') >= 0             ? '#2277ee' :
+                     ev2.indexOf('Thunderstorm') >= 0      ? '#ffaa00' :
+                     ev2.indexOf('Hurricane') >= 0         ? '#ff4400' :
+                     ev2.indexOf('Tornado Watch') >= 0     ? '#ff8800' :
+                     ev2.indexOf('Red Flag') >= 0          ? '#ff6600' :
+                     ev2.indexOf('Fire') >= 0              ? '#ff6600' : '#8888cc';
+            var popup = L.popup({ className: 'hazard-popup' }).setContent(
+              '<div style="font-family:Inter,sans-serif;padding:4px 2px;min-width:200px;">' +
+              '<div style="font-size:12px;font-weight:700;color:' + hc + ';margin-bottom:5px;">' + ev2 + '</div>' +
+              '<div style="font-size:10px;color:#4a6070;margin-bottom:4px;">' + (sig.area || '').slice(0, 90) + '</div>' +
+              '<div style="font-size:9px;color:#3a5070;">' + (sig.src || 'NWS') + ' · ' + timeAgo(sig.sent) + '</div>' +
+              '</div>'
+            );
+            var hazLayer = L.geoJSON(
+              { type: 'Feature', geometry: geom },
+              {
+                style: { color: hc, weight: 3, fillColor: hc, fillOpacity: 0.25, opacity: 1.0 },
+                onEachFeature: function(f, lyr) {
+                  lyr.bindPopup(popup);
+                  lyr.on('mouseover', function(e) {
+                    lyr.setStyle({ fillOpacity: 0.45, weight: 4 });
+                    lyr.openPopup(e.latlng);
+                  });
+                  lyr.on('mouseout', function() {
+                    lyr.setStyle({ fillOpacity: 0.25, weight: 3 });
+                    lyr.closePopup();
+                  });
+                  lyr.on('click', function() { selectRegion(region.id); });
                 }
-              }).addTo(leafMap);
-              layer.bindPopup(
-                '<div style="font-family:Inter,sans-serif;min-width:180px;">' +
-                '<div style="font-size:12px;font-weight:700;color:'+hc+';margin-bottom:4px;">'+se+'</div>' +
-                '<div style="font-size:10px;color:#4a6070;margin-bottom:3px;">'+sa+'</div>' +
-                '<div style="font-size:9px;color:#3a5070;">'+ss+' · '+st+'</div>' +
-                '</div>'
-              );
-              layer.on('click', function() { selectRegion(region.id); });
-              mapLayers.hazards.push(layer);
-            })(hColor, ev2, sigArea, sigSrc, sigTime);
-          } catch(e) {}
+              }
+            ).addTo(leafMap);
+            mapLayers.hazards.push(hazLayer);
+          } catch(e) { console.error('Hazard render error:', e); }
         } else if (sig.lat != null && sig.lng != null) {
           var m = L.circleMarker([sig.lat, sig.lng], {
-            radius: 6, color: color, weight: 1.5, fillColor: color, fillOpacity: 0.2
+            radius: 8, color: '#ffaa00', weight: 2, fillColor: '#ffaa00', fillOpacity: 0.3
           }).addTo(leafMap);
+          m.bindTooltip(sig.event || 'Alert', { permanent: false, direction: 'top' });
           m.on('click', function() { selectRegion(region.id); });
           mapLayers.hazards.push(m);
         }
@@ -2343,6 +2473,26 @@ function renderValidation() {
     if (suppressionBreakdown.belowThreshold > 0) html += '· <span style="color:#5a7888">'+suppressionBreakdown.belowThreshold+'</span> below operational relevance threshold<br>';
     html += '</div></div>';
   }
+
+  // Scoring constants — transparency
+  html += '<div style="margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #1a2030;">';
+  html += '<div style="font-size:8px;font-weight:700;letter-spacing:0.1em;color:#6888a8;text-transform:uppercase;margin-bottom:6px;">Scoring Parameters</div>';
+  html += '<div style="font-size:9px;color:#4a6888;line-height:1.8;font-family:monospace;">';
+  html += 'Intersection bonus: <span style="color:#6a8aa8">+28</span><br>';
+  html += 'Proximity bonus: <span style="color:#6a8aa8">+12</span><br>';
+  html += 'Corroboration (rising): <span style="color:#6a8aa8">+18</span><br>';
+  html += 'Persistence: <span style="color:#6a8aa8">+6/cycle (max 3)</span><br>';
+  html += 'Operational gap: <span style="color:#6a8aa8">−8</span><br>';
+  html += 'Proximity buffer: <span style="color:#6a8aa8">0.6° (~40mi)</span><br>';
+  html += '</div>';
+  html += '<div style="font-size:8px;font-weight:700;letter-spacing:0.1em;color:#6888a8;text-transform:uppercase;margin:8px 0 6px;">Posture Thresholds</div>';
+  html += '<div style="font-size:9px;color:#4a6888;line-height:1.8;font-family:monospace;">';
+  html += '<span style="color:#a01828">SUSPEND</span> ≥90 · <span style="color:#a04818">RESTRICT</span> ≥75<br>';
+  html += '<span style="color:#a07820">WATCH</span> ≥45 · <span style="color:#5555aa">MONITOR</span> ≥22<br>';
+  html += 'Ceiling for non-emergency: <span style="color:#6a8aa8">89</span><br>';
+  html += '</div>';
+  html += '<div style="font-size:8px;color:#3a5070;font-style:italic;margin-top:6px;line-height:1.5;">Policy placeholders — production calibrates against incident history.</div>';
+  html += '</div>';
 
   // Data sources
   html += '<div style="font-size:8px;font-weight:700;letter-spacing:0.1em;color:#6888a8;text-transform:uppercase;margin-bottom:6px;">Live Data Sources</div>';
