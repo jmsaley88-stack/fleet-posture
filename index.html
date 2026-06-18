@@ -523,7 +523,8 @@ var EVENT_SCORES = {
   'Hurricane Warning': 55,
   'Hurricane Watch': 40,
   'Severe Thunderstorm Warning': 36,
-  'Tornado Watch': 24,
+  'Tornado Watch': 30,
+  'Severe Thunderstorm Watch': 22,
   'Winter Storm Warning': 30,
   'Ice Storm Warning': 32,
   'High Wind Warning': 26,
@@ -638,7 +639,7 @@ function pointInRegion(lat, lng, region) {
 
 function coordsNearRegion(coordsList, region) {
   var b = region.bounds;
-  var buf = 0.6;
+  var buf = 0.25;
   var inside = false, near = false;
   for (var i = 0; i < coordsList.length; i++) {
     var lng = coordsList[i][0], lat = coordsList[i][1];
@@ -679,7 +680,7 @@ function signalRelevance(signal, region) {
     var dlat = signal.lat - region.lat;
     var dlng = signal.lng - region.lng;
     var dist = Math.sqrt(dlat*dlat + dlng*dlng);
-    return { inside: false, near: dist < 1.4 };
+    return { inside: false, near: dist < 0.5 };
   }
   return { inside: false, near: false };
 }
@@ -796,6 +797,21 @@ async function fetchAllData() {
     }
   });
   recordValidation('NWS Alerts', nwsCount, nwsCount + ' alerts received', Date.now());
+  // DIAGNOSTIC — list unique event types
+  var evTypes = {};
+  allSignals.filter(function(s){return s.type==='nws';}).forEach(function(s){ evTypes[s.event]=(evTypes[s.event]||0)+1; });
+  console.log('[NWS Events ingested]', JSON.stringify(evTypes, null, 2));
+  var watches = allSignals.filter(function(s){ return s.event && s.event.indexOf('Tornado Watch')>=0; });
+  console.log('[Tornado Watches]', watches.length);
+  watches.forEach(function(w){
+    var hits = [];
+    REGIONS.forEach(function(rg){
+      var rel = signalRelevance(w, rg);
+      if (rel.inside) hits.push(rg.id+':INSIDE');
+      else if (rel.near) hits.push(rg.id+':near');
+    });
+    console.log('  TornadoWatch', w.state, '→', hits.length ? hits.join(', ') : 'NO REGION MATCH');
+  });
 
   // Fire weather
   setMsg('Fetching fire weather zones…');
@@ -1073,6 +1089,17 @@ function runDetection() {
                        || sig.type === 'evac';
       if (!canSuspend && score >= POSTURE_THRESH.suspend) {
         score = POSTURE_THRESH.suspend - 1; // cap at 89 — RESTRICT max
+      }
+
+      // Proximity-only posture ceiling — a signal that does not intersect the
+      // operating region cannot exceed MONITOR. "Near" earns awareness, not action.
+      // Only confirmed in-area exposure justifies WATCH or higher.
+      if (!rel.inside) {
+        if (score >= POSTURE_THRESH.watch) {
+          score = POSTURE_THRESH.watch - 1; // cap at 44 — MONITOR max
+          lineage.push({ lbl: 'Proximity-only — capped at MONITOR (no confirmed in-area exposure)',
+                         val: 0, color: '#3a5070', type: 'cap' });
+        }
       }
 
       var finalScore = Math.round(Math.min(99, score));
@@ -2483,7 +2510,7 @@ function renderValidation() {
   html += 'Corroboration (rising): <span style="color:#6a8aa8">+18</span><br>';
   html += 'Persistence: <span style="color:#6a8aa8">+6/cycle (max 3)</span><br>';
   html += 'Operational gap: <span style="color:#6a8aa8">−8</span><br>';
-  html += 'Proximity buffer: <span style="color:#6a8aa8">0.6° (~40mi)</span><br>';
+  html += 'Proximity buffer: <span style="color:#6a8aa8">0.25° (~17mi)</span><br>';
   html += '</div>';
   html += '<div style="font-size:8px;font-weight:700;letter-spacing:0.1em;color:#6888a8;text-transform:uppercase;margin:8px 0 6px;">Posture Thresholds</div>';
   html += '<div style="font-size:9px;color:#4a6888;line-height:1.8;font-family:monospace;">';
