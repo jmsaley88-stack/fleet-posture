@@ -656,6 +656,21 @@ function coordsNearRegion(coordsList, region) {
 
 function geometryRelevance(geometry, region) {
   if (!geometry) return { inside: false, near: false };
+
+  // FIRST: proper point-in-polygon test — does the region actually sit inside
+  // the hazard polygon? This catches large polygons (Tornado Watches, big SPC
+  // areas) whose vertices fall outside the region box but whose AREA covers it.
+  if (pointInGeometry(region.lat, region.lng, geometry) ||
+      pointInGeometry(region.bounds.minLat, region.bounds.minLng, geometry) ||
+      pointInGeometry(region.bounds.maxLat, region.bounds.maxLng, geometry) ||
+      pointInGeometry(region.bounds.minLat, region.bounds.maxLng, geometry) ||
+      pointInGeometry(region.bounds.maxLat, region.bounds.minLng, geometry)) {
+    return { inside: true, near: false };
+  }
+
+  // SECOND: vertex-sampling test — does the hazard polygon's boundary fall
+  // inside or near the region box? This catches small polygons (local warnings)
+  // whose area is smaller than the region.
   var coords = [];
   if (geometry.type === 'Polygon') {
     coords = geometry.coordinates[0];
@@ -797,21 +812,13 @@ async function fetchAllData() {
     }
   });
   recordValidation('NWS Alerts', nwsCount, nwsCount + ' alerts received', Date.now());
-  // DIAGNOSTIC — list unique event types
-  var evTypes = {};
-  allSignals.filter(function(s){return s.type==='nws';}).forEach(function(s){ evTypes[s.event]=(evTypes[s.event]||0)+1; });
-  console.log('[NWS Events ingested]', JSON.stringify(evTypes, null, 2));
-  var watches = allSignals.filter(function(s){ return s.event && s.event.indexOf('Tornado Watch')>=0; });
-  console.log('[Tornado Watches]', watches.length);
-  watches.forEach(function(w){
-    var hits = [];
-    REGIONS.forEach(function(rg){
-      var rel = signalRelevance(w, rg);
-      if (rel.inside) hits.push(rg.id+':INSIDE');
-      else if (rel.near) hits.push(rg.id+':near');
-    });
-    console.log('  TornadoWatch', w.state, '→', hits.length ? hits.join(', ') : 'NO REGION MATCH');
+  // DIAGNOSTIC
+  var atl = REGIONS.find(function(r){return r.id==='ATL';});
+  allSignals.filter(function(s){return s.event && s.event.indexOf('Tornado Watch')>=0;}).forEach(function(w){
+    console.log('TW', w.state, 'hasGeom:', !!w.geometry, w.geometry?w.geometry.type:'NONE',
+      'atlInside:', w.geometry?pointInGeometry(atl.lat, atl.lng, w.geometry):'n/a');
   });
+
 
   // Fire weather
   setMsg('Fetching fire weather zones…');
